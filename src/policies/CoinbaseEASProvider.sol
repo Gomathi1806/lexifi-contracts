@@ -53,6 +53,7 @@ contract CoinbaseEASProvider is IVerificationProvider {
     bytes32 public constant TYPE_BUSINESS = keccak256("BUSINESS");
 
     constructor(address _eas, address _indexer, address _attester) {
+        require(_eas != address(0) && _indexer != address(0) && _attester != address(0), "zero address");
         eas = IEAS(_eas);
         indexer = IEASIndexer(_indexer);
         coinbaseAttester = _attester;

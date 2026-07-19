@@ -46,6 +46,7 @@ contract LexifiHook is IHooks {
     }
 
     constructor(IPoolManager _poolManager, address _owner) {
+        require(_owner != address(0), "zero owner");
         poolManager = _poolManager;
         owner = _owner;
         requireApproval = false;
@@ -177,7 +178,7 @@ contract LexifiHook is IHooks {
     function approvePolicy(address policy) external { if (msg.sender != owner) revert OnlyOwner(); approvedPolicies[policy] = true; }
     function revokePolicy(address policy) external { if (msg.sender != owner) revert OnlyOwner(); approvedPolicies[policy] = false; }
     function setRequireApproval(bool _require) external { if (msg.sender != owner) revert OnlyOwner(); requireApproval = _require; }
-    function transferOwnership(address newOwner) external { if (msg.sender != owner) revert OnlyOwner(); owner = newOwner; }
+    function transferOwnership(address newOwner) external { if (msg.sender != owner) revert OnlyOwner(); require(newOwner != address(0), "zero owner"); owner = newOwner; }
 
     function setTrustedRouter(address router, bool trusted) external {
         if (msg.sender != owner) revert OnlyOwner();

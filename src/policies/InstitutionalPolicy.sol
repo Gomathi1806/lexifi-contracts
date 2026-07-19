@@ -33,6 +33,7 @@ contract InstitutionalPolicy is ILexifiPolicy {
     error TooFewProviders();
 
     constructor(address _owner) {
+        require(_owner != address(0), "zero owner");
         owner = _owner;
     }
 

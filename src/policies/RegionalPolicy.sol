@@ -36,6 +36,7 @@ contract RegionalPolicy is ILexifiPolicy {
     error Unauthorized();
 
     constructor(address _provider, address _owner) {
+        require(_provider != address(0) && _owner != address(0), "zero address");
         provider = IVerificationProvider(_provider);
         owner = _owner;
     }
