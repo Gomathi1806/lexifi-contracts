@@ -17,10 +17,10 @@ import {IVerificationProvider} from "../interfaces/IVerificationProvider.sol";
 ///      on the same DEX to have different compliance requirements.
 contract ThresholdPolicy is ILexifiPolicy {
     struct PoolConfig {
-        uint256 noKycLimit;        // Below this amount: no KYC needed
-        uint256 enhancedLimit;     // Above this: requires ACCREDITED
-        AccessLevel lpMinimum;     // Minimum for liquidity providers
-        AccessLevel swapMinimum;   // Minimum for any swap (floor)
+        uint256 noKycLimit; // Below this amount: no KYC needed
+        uint256 enhancedLimit; // Above this: requires ACCREDITED
+        AccessLevel lpMinimum; // Minimum for liquidity providers
+        AccessLevel swapMinimum; // Minimum for any swap (floor)
         bool active;
     }
 
@@ -62,7 +62,9 @@ contract ThresholdPolicy is ILexifiPolicy {
         }
 
         // Get user's verification level from provider
-        IVerificationProvider.VerificationResult memory v = provider.verify(user);
+        IVerificationProvider.VerificationResult memory v = provider.verify(
+            user
+        );
         level = AccessLevel(v.tier);
 
         PoolConfig memory cfg = configs[poolId];
@@ -78,8 +80,14 @@ contract ThresholdPolicy is ILexifiPolicy {
                 // Small trade — anyone can swap
                 return (AccessLevel.INSTITUTIONAL, "");
             }
-            if (amount > cfg.enhancedLimit && uint8(level) < uint8(AccessLevel.ACCREDITED)) {
-                return (AccessLevel.DENIED, "Large trade requires enhanced verification");
+            if (
+                amount > cfg.enhancedLimit &&
+                uint8(level) < uint8(AccessLevel.ACCREDITED)
+            ) {
+                return (
+                    AccessLevel.DENIED,
+                    "Large trade requires enhanced verification"
+                );
             }
             if (uint8(level) < uint8(cfg.swapMinimum)) {
                 return (AccessLevel.DENIED, "Swap requires basic verification");
@@ -89,7 +97,10 @@ contract ThresholdPolicy is ILexifiPolicy {
         // For adding liquidity
         if (operation == 1) {
             if (uint8(level) < uint8(cfg.lpMinimum)) {
-                return (AccessLevel.DENIED, "Liquidity provision requires verification");
+                return (
+                    AccessLevel.DENIED,
+                    "Liquidity provision requires verification"
+                );
             }
         }
 
@@ -133,7 +144,9 @@ contract ThresholdPolicy is ILexifiPolicy {
         AccessLevel swapMinimum
     ) external {
         // First time: anyone can set (hook will set admin). After: only admin.
-        if (poolAdmins[poolId] != address(0) && poolAdmins[poolId] != msg.sender) {
+        if (
+            poolAdmins[poolId] != address(0) && poolAdmins[poolId] != msg.sender
+        ) {
             revert Unauthorized();
         }
 

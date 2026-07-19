@@ -26,7 +26,9 @@ interface IEAS {
         bytes data;
     }
 
-    function getAttestation(bytes32 uid) external view returns (Attestation memory);
+    function getAttestation(
+        bytes32 uid
+    ) external view returns (Attestation memory);
 }
 
 /// @title CoinbaseEASProvider
@@ -56,7 +58,9 @@ contract CoinbaseEASProvider is IVerificationProvider {
         coinbaseAttester = _attester;
     }
 
-    function verify(address user) external view override returns (VerificationResult memory result) {
+    function verify(
+        address user
+    ) external view override returns (VerificationResult memory result) {
         result.providerName = "coinbase";
 
         bool hasAccount = _hasValidAttestation(user, SCHEMA_ACCOUNT);
@@ -79,7 +83,10 @@ contract CoinbaseEASProvider is IVerificationProvider {
         }
 
         if (hasAccount) {
-            result.attestationId = indexer.getAttestationUid(user, SCHEMA_ACCOUNT);
+            result.attestationId = indexer.getAttestationUid(
+                user,
+                SCHEMA_ACCOUNT
+            );
         }
 
         return result;
@@ -93,13 +100,19 @@ contract CoinbaseEASProvider is IVerificationProvider {
         return "Coinbase Verifications (EAS)";
     }
 
-    function supportsType(bytes32 verificationType) external pure override returns (bool) {
-        return verificationType == TYPE_KYC
-            || verificationType == TYPE_COUNTRY
-            || verificationType == TYPE_BUSINESS;
+    function supportsType(
+        bytes32 verificationType
+    ) external pure override returns (bool) {
+        return
+            verificationType == TYPE_KYC ||
+            verificationType == TYPE_COUNTRY ||
+            verificationType == TYPE_BUSINESS;
     }
 
-    function _hasValidAttestation(address user, bytes32 schema) internal view returns (bool) {
+    function _hasValidAttestation(
+        address user,
+        bytes32 schema
+    ) internal view returns (bool) {
         try indexer.getAttestationUid(user, schema) returns (bytes32 uid) {
             if (uid == bytes32(0)) return false;
 
@@ -107,7 +120,8 @@ contract CoinbaseEASProvider is IVerificationProvider {
 
             if (att.attester != coinbaseAttester) return false;
             if (att.revocationTime != 0) return false;
-            if (att.expirationTime != 0 && att.expirationTime < block.timestamp) return false;
+            if (att.expirationTime != 0 && att.expirationTime < block.timestamp)
+                return false;
 
             return true;
         } catch {
@@ -115,7 +129,10 @@ contract CoinbaseEASProvider is IVerificationProvider {
         }
     }
 
-    function hasAttestation(address user, bytes32 schema) external view returns (bool) {
+    function hasAttestation(
+        address user,
+        bytes32 schema
+    ) external view returns (bool) {
         return _hasValidAttestation(user, schema);
     }
 }
