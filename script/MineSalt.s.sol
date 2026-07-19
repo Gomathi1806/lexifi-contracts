@@ -6,86 +6,56 @@ import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {LexifiHook} from "../src/LexifiHook.sol";
 
-/// @notice Mines a CREATE2 salt so the LexifiHook deploys to an address
-///         with the correct permission bits in the last 2 bytes.
-///
-///         Required flags:
-///         - beforeInitialize  (bit 13) = 0x2000
-///         - beforeAddLiquidity (bit 11) = 0x0800
-///         - beforeSwap        (bit 7)  = 0x0080
-///         Combined mask: 0x2880
-///
-///         The address must have these bits SET and no other hook bits set.
+/// @notice Mines a CREATE2 salt so LexifiHook lands on an address whose low 14 bits
+///         encode exactly: beforeInitialize | beforeAddLiquidity | beforeSwap (0x2880).
+/// @dev The factory MUST be the canonical CREATE2 deployer used by DeployHook —
+///      the factory address is part of the CREATE2 formula. (The previous version
+///      of this script mined against the deployer EOA, which predicts the wrong
+///      address; that bug is fixed here.)
 contract MineSalt is Script {
-    // Hook permission flags we need
-    uint160 constant REQUIRED_FLAGS = uint160(
-        Hooks.BEFORE_INITIALIZE_FLAG |
-        Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
-        Hooks.BEFORE_SWAP_FLAG
-    );
+    address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    // All possible hook flags (last 14 bits)
+    uint160 constant REQUIRED_FLAGS =
+        uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
     uint160 constant ALL_FLAGS = uint160((1 << 14) - 1);
 
     function run() external view {
-        // Read from environment
         address poolManager = vm.envAddress("POOL_MANAGER");
-        address owner = vm.envAddress("DEPLOYER");
+        address owner = vm.envAddress("OWNER"); // Smart Wallet or Safe
 
         console.log("Mining CREATE2 salt for LexifiHook...");
+        console.log("Factory:", CREATE2_DEPLOYER);
         console.log("PoolManager:", poolManager);
         console.log("Owner:", owner);
-        console.log("Required flags: 0x2880");
-        console.log("");
 
-        // Get the creation code with constructor args
-        bytes memory creationCode = abi.encodePacked(
-            type(LexifiHook).creationCode,
-            abi.encode(IPoolManager(poolManager), owner)
-        );
-
+        bytes memory creationCode =
+            abi.encodePacked(type(LexifiHook).creationCode, abi.encode(IPoolManager(poolManager), owner));
         bytes32 initCodeHash = keccak256(creationCode);
         console.log("InitCode hash:");
         console.logBytes32(initCodeHash);
 
-        // Mine salt using CREATE2 formula:
-        // address = keccak256(0xff ++ deployer ++ salt ++ keccak256(creationCode))[12:]
-        // We use the deployer's address as the CREATE2 deployer
-        // For simplicity, we'll mine using address(deployer) as the factory
-
-        bool found = false;
-        for (uint256 salt = 0; salt < 100000; salt++) {
-            address predicted = _computeAddress(owner, bytes32(salt), initCodeHash);
-
-            uint160 addrFlags = uint160(predicted) & ALL_FLAGS;
-
-            // Must have ALL required flags and NO extra flags
-            if (addrFlags == REQUIRED_FLAGS) {
+        for (uint256 salt = 0; salt < 2_000_000; salt++) {
+            address predicted = _computeAddress(CREATE2_DEPLOYER, bytes32(salt), initCodeHash);
+            if (uint160(predicted) & ALL_FLAGS == REQUIRED_FLAGS) {
                 console.log("");
                 console.log("=== FOUND ===");
                 console.log("Salt:", salt);
                 console.logBytes32(bytes32(salt));
                 console.log("Hook address:", predicted);
-                console.log("Last 2 bytes:", uint16(uint160(predicted)));
-                found = true;
-                break;
+                console.log("Set HOOK_SALT to the bytes32 above and run DeployHook.");
+                return;
             }
         }
-
-        if (!found) {
-            console.log("");
-            console.log("No salt found in 100k iterations.");
-            console.log("Try running with higher range or different deployer.");
-        }
+        revert("No salt found in 2M iterations; widen the range.");
     }
 
-    function _computeAddress(
-        address deployer,
-        bytes32 salt,
-        bytes32 initCodeHash
-    ) internal pure returns (address) {
-        return address(uint160(uint256(keccak256(
-            abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)
-        ))));
+    function _computeAddress(address factory, bytes32 salt, bytes32 initCodeHash)
+        internal
+        pure
+        returns (address)
+    {
+        return address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash))))
+        );
     }
 }

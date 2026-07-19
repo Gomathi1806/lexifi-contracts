@@ -7,8 +7,10 @@ import {ThresholdPolicy} from "../src/policies/ThresholdPolicy.sol";
 import {RegionalPolicy} from "../src/policies/RegionalPolicy.sol";
 import {InstitutionalPolicy} from "../src/policies/InstitutionalPolicy.sol";
 
+/// @notice Deploys the provider + 3 policy templates.
+///         OWNER (Smart Wallet / Safe) controls the policies — NOT the deployer key.
 contract DeployPolicies is Script {
-    // Base Sepolia addresses
+    // EAS predeploy + Coinbase indexer/attester (same on Base mainnet & Base Sepolia)
     address constant EAS = 0x4200000000000000000000000000000000000021;
     address constant EAS_INDEXER = 0x2c7eE1E5f416dfF40054c27A62f7B357C4E8619C;
     address constant CB_ATTESTER = 0x357458739F90461b99789350868CD7CF330Dd7EE;
@@ -16,44 +18,31 @@ contract DeployPolicies is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
+        address owner = vm.envAddress("OWNER"); // Smart Wallet or Safe — never the deployer EOA
+        require(owner != deployer, "OWNER must differ from throwaway deployer");
 
-        console.log("Deployer:", deployer);
+        console.log("Deployer (throwaway):", deployer);
+        console.log("Owner (Smart Wallet/Safe):", owner);
         console.log("Chain ID:", block.chainid);
-        console.log("");
 
         vm.startBroadcast(deployerKey);
 
-        // 1. Deploy CoinbaseEASProvider
-        CoinbaseEASProvider provider = new CoinbaseEASProvider(
-            EAS,
-            EAS_INDEXER,
-            CB_ATTESTER
-        );
+        CoinbaseEASProvider provider = new CoinbaseEASProvider(EAS, EAS_INDEXER, CB_ATTESTER);
         console.log("CoinbaseEASProvider:", address(provider));
 
-        // 2. Deploy ThresholdPolicy (retail pools)
-        ThresholdPolicy threshold = new ThresholdPolicy(
-            address(provider),
-            deployer
-        );
+        ThresholdPolicy threshold = new ThresholdPolicy(address(provider), owner);
         console.log("ThresholdPolicy:", address(threshold));
 
-        // 3. Deploy RegionalPolicy (EU/regional pools)
-        RegionalPolicy regional = new RegionalPolicy(
-            address(provider),
-            deployer
-        );
+        RegionalPolicy regional = new RegionalPolicy(address(provider), owner);
         console.log("RegionalPolicy:", address(regional));
 
-        // 4. Deploy InstitutionalPolicy (multi-provider pools)
-        InstitutionalPolicy institutional = new InstitutionalPolicy(deployer);
+        InstitutionalPolicy institutional = new InstitutionalPolicy(owner);
         console.log("InstitutionalPolicy:", address(institutional));
 
         vm.stopBroadcast();
 
         console.log("");
-        console.log("=== DEPLOYMENT COMPLETE ===");
-        console.log("Next: Deploy LexifiHook with CREATE2 salt mining");
-        console.log("Run: forge script script/DeployHook.s.sol --rpc-url https://sepolia.base.org --broadcast");
+        console.log("=== POLICIES DEPLOYED (owner = Smart Wallet/Safe) ===");
+        console.log("Next: MineSalt, then DeployHook.");
     }
 }

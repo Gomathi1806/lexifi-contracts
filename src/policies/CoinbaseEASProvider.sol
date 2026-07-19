@@ -20,8 +20,13 @@ interface IEAS {
         uint64 expirationTime;
         uint64 revocationTime;
         bytes32 refUID;
-        address attester;
+        // NOTE: field order MUST match the canonical EAS Attestation struct —
+        // recipient comes BEFORE attester. ABI decoding is positional; the
+        // previously deployed provider had these two swapped, which made the
+        // attester check compare the user's address to Coinbase's attester and
+        // silently deny every verification.
         address recipient;
+        address attester;
         bool revocable;
         bytes data;
     }
@@ -120,6 +125,7 @@ contract CoinbaseEASProvider is IVerificationProvider {
             IEAS.Attestation memory att = eas.getAttestation(uid);
 
             if (att.attester != coinbaseAttester) return false;
+            if (att.recipient != user) return false;
             if (att.revocationTime != 0) return false;
             if (att.expirationTime != 0 && att.expirationTime < block.timestamp)
                 return false;
