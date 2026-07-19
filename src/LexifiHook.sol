@@ -8,6 +8,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
+import {IMsgSender} from "v4-periphery/src/interfaces/IMsgSender.sol";
 import {ILexifiPolicy} from "./interfaces/ILexifiPolicy.sol";
 import {LexifiEvents} from "./libraries/LexifiEvents.sol";
 
@@ -24,6 +25,13 @@ contract LexifiHook is IHooks {
     bool public requireApproval;
     uint256 public totalChecks;
     uint256 public totalPools;
+
+    /// @notice Routers whose IMsgSender.msgSender() claim is honored for user identification.
+    /// Only owner-vetted routers (e.g. Universal Router, PositionManager) may speak for a user;
+    /// any other caller is compliance-checked as itself.
+    mapping(address => bool) public trustedRouters;
+
+    event TrustedRouterSet(address indexed router, bool trusted);
 
     error ComplianceDenied(address user, uint8 required, uint8 actual, string reason);
     error PolicyNotApproved(address policy);
@@ -76,11 +84,11 @@ contract LexifiHook is IHooks {
     }
 
     // === IHooks: beforeAddLiquidity ===
-    function beforeAddLiquidity(address, PoolKey calldata key, IPoolManager.ModifyLiquidityParams calldata params, bytes calldata) external onlyPoolManager returns (bytes4) {
+    function beforeAddLiquidity(address sender, PoolKey calldata key, IPoolManager.ModifyLiquidityParams calldata params, bytes calldata) external onlyPoolManager returns (bytes4) {
         PoolId poolId = key.toId();
         if (isCompliancePool[poolId]) {
             uint256 amount = params.liquidityDelta > 0 ? uint256(params.liquidityDelta) : 0;
-            _enforceCompliance(poolId, tx.origin, 1, amount);
+            _enforceCompliance(poolId, _resolveUser(sender), 1, amount);
         }
         return IHooks.beforeAddLiquidity.selector;
     }
@@ -101,11 +109,11 @@ contract LexifiHook is IHooks {
     }
 
     // === IHooks: beforeSwap (compliance enforced here) ===
-    function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata) external onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+    function beforeSwap(address sender, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata) external onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
         if (isCompliancePool[poolId]) {
             uint256 amount = params.amountSpecified < 0 ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
-            _enforceCompliance(poolId, tx.origin, 0, amount);
+            _enforceCompliance(poolId, _resolveUser(sender), 0, amount);
         }
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -126,6 +134,25 @@ contract LexifiHook is IHooks {
     }
 
     // === COMPLIANCE ENGINE ===
+
+    /// @notice Resolve the end user behind a PoolManager call.
+    /// @dev `sender` is the contract that called PoolManager (usually a router).
+    ///      - Trusted routers (Universal Router, PositionManager, ...) expose the real
+    ///        user via IMsgSender.msgSender(); works for EOAs, Safe multisigs, and
+    ///        ERC-4337 smart accounts alike — msgSender() returns the account address.
+    ///      - Any other caller is treated as the user itself, so an unvetted router
+    ///        contract must hold its own verification (fail-safe: unverifiable => DENIED
+    ///        by the policy, never falsely approved).
+    ///      Never reads tx.origin.
+    function _resolveUser(address sender) internal view returns (address) {
+        if (trustedRouters[sender]) {
+            try IMsgSender(sender).msgSender() returns (address user) {
+                if (user != address(0)) return user;
+            } catch {}
+        }
+        return sender;
+    }
+
     function _enforceCompliance(PoolId poolId, address user, uint8 operation, uint256 amount) internal {
         address policy = poolPolicy[poolId];
         totalChecks++;
@@ -151,6 +178,12 @@ contract LexifiHook is IHooks {
     function revokePolicy(address policy) external { if (msg.sender != owner) revert OnlyOwner(); approvedPolicies[policy] = false; }
     function setRequireApproval(bool _require) external { if (msg.sender != owner) revert OnlyOwner(); requireApproval = _require; }
     function transferOwnership(address newOwner) external { if (msg.sender != owner) revert OnlyOwner(); owner = newOwner; }
+
+    function setTrustedRouter(address router, bool trusted) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        trustedRouters[router] = trusted;
+        emit TrustedRouterSet(router, trusted);
+    }
 
     // === VIEW ===
     function checkUserCompliance(PoolKey calldata key, address user, uint8 operation, uint256 amount) external view returns (bool allowed, uint8 userLevel, uint8 requiredLevel, string memory reason) {

@@ -122,8 +122,8 @@ contract LexifiHookTest is Test {
         });
 
         // Call as pool manager, with tx.origin = verified trader
-        vm.prank(address(mockPM), verifiedTrader);
-        (bytes4 selector,,) = hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        (bytes4 selector,,) = hook.beforeSwap(verifiedTrader, poolKey, params, "");
 
         assertEq(selector, IHooks.beforeSwap.selector);
         assertEq(hook.totalChecks(), 1);
@@ -137,8 +137,8 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), unverifiedTrader);
-        (bytes4 selector,,) = hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        (bytes4 selector,,) = hook.beforeSwap(unverifiedTrader, poolKey, params, "");
 
         assertEq(selector, IHooks.beforeSwap.selector);
     }
@@ -151,9 +151,9 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), unverifiedTrader);
+        vm.prank(address(mockPM));
         vm.expectRevert();
-        hook.beforeSwap(address(0), poolKey, params, "");
+        hook.beforeSwap(unverifiedTrader, poolKey, params, "");
     }
 
     function test_BeforeSwap_VerifiedUser_MediumAmount_Passes() public {
@@ -163,8 +163,8 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), verifiedTrader);
-        (bytes4 selector,,) = hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        (bytes4 selector,,) = hook.beforeSwap(verifiedTrader, poolKey, params, "");
 
         assertEq(selector, IHooks.beforeSwap.selector);
     }
@@ -177,9 +177,9 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), verifiedTrader); // RETAIL tier
+        vm.prank(address(mockPM)); // RETAIL tier
         vm.expectRevert();
-        hook.beforeSwap(address(0), poolKey, params, "");
+        hook.beforeSwap(verifiedTrader, poolKey, params, "");
     }
 
     function test_BeforeSwap_EnhancedUser_LargeAmount_Passes() public {
@@ -189,8 +189,8 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), enhancedTrader); // ACCREDITED tier
-        (bytes4 selector,,) = hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM)); // ACCREDITED tier
+        (bytes4 selector,,) = hook.beforeSwap(enhancedTrader, poolKey, params, "");
 
         assertEq(selector, IHooks.beforeSwap.selector);
     }
@@ -210,8 +210,8 @@ contract LexifiHookTest is Test {
         });
 
         // Unverified user on open pool — should pass
-        vm.prank(address(mockPM), unverifiedTrader);
-        (bytes4 selector,,) = hook.beforeSwap(address(0), openKey, params, "");
+        vm.prank(address(mockPM));
+        (bytes4 selector,,) = hook.beforeSwap(unverifiedTrader, openKey, params, "");
 
         assertEq(selector, IHooks.beforeSwap.selector);
         // totalChecks should NOT increment for non-compliance pools
@@ -229,8 +229,8 @@ contract LexifiHookTest is Test {
             salt: bytes32(0)
         });
 
-        vm.prank(address(mockPM), verifiedTrader);
-        bytes4 selector = hook.beforeAddLiquidity(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        bytes4 selector = hook.beforeAddLiquidity(verifiedTrader, poolKey, params, "");
 
         assertEq(selector, IHooks.beforeAddLiquidity.selector);
     }
@@ -243,9 +243,9 @@ contract LexifiHookTest is Test {
             salt: bytes32(0)
         });
 
-        vm.prank(address(mockPM), unverifiedTrader);
+        vm.prank(address(mockPM));
         vm.expectRevert();
-        hook.beforeAddLiquidity(address(0), poolKey, params, "");
+        hook.beforeAddLiquidity(unverifiedTrader, poolKey, params, "");
     }
 
     // ═══════════════════════════════════════════
@@ -261,7 +261,7 @@ contract LexifiHookTest is Test {
         });
 
         // Even unverified user can remove liquidity
-        vm.prank(address(mockPM), unverifiedTrader);
+        vm.prank(address(mockPM));
         bytes4 selector = hook.beforeRemoveLiquidity(address(0), poolKey, params, "");
 
         assertEq(selector, IHooks.beforeRemoveLiquidity.selector);
@@ -430,8 +430,8 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), verifiedTrader);
-        hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        hook.beforeSwap(verifiedTrader, poolKey, params, "");
 
         // If we get here without revert, the event was emitted
         // (Foundry's vm.expectEmit could be used for precise checking)
@@ -451,12 +451,12 @@ contract LexifiHookTest is Test {
             sqrtPriceLimitX96: 0
         });
 
-        vm.prank(address(mockPM), verifiedTrader);
-        hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        hook.beforeSwap(verifiedTrader, poolKey, params, "");
         assertEq(hook.totalChecks(), 1);
 
-        vm.prank(address(mockPM), enhancedTrader);
-        hook.beforeSwap(address(0), poolKey, params, "");
+        vm.prank(address(mockPM));
+        hook.beforeSwap(enhancedTrader, poolKey, params, "");
         assertEq(hook.totalChecks(), 2);
     }
 
@@ -472,5 +472,73 @@ contract LexifiHookTest is Test {
             tickSpacing: 60,
             hooks: IHooks(address(hook))
         });
+    }
+
+    // ═══════════════════════════════════════════
+    //  USER RESOLUTION — TRUSTED ROUTERS (no tx.origin)
+    // ═══════════════════════════════════════════
+
+    function _mediumSwap() internal pure returns (IPoolManager.SwapParams memory) {
+        return IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -int256(5000e18), sqrtPriceLimitX96: 0});
+    }
+
+    function test_TrustedRouter_ResolvesRealUser() public {
+        MockRouter router = new MockRouter();
+        router.setUser(verifiedTrader);
+        vm.prank(lexifiOwner);
+        hook.setTrustedRouter(address(router), true);
+
+        vm.prank(address(mockPM));
+        (bytes4 selector,,) = hook.beforeSwap(address(router), poolKey, _mediumSwap(), "");
+        assertEq(selector, IHooks.beforeSwap.selector);
+    }
+
+    function test_UntrustedRouter_CannotSpoofVerifiedUser() public {
+        // Router claims a verified user via msgSender() but is NOT trusted:
+        // the router itself is compliance-checked (unverified) => denied.
+        MockRouter router = new MockRouter();
+        router.setUser(verifiedTrader);
+
+        vm.prank(address(mockPM));
+        vm.expectRevert();
+        hook.beforeSwap(address(router), poolKey, _mediumSwap(), "");
+    }
+
+    function test_TrustedRouter_MsgSenderReverts_FailsSafe() public {
+        // Trusted router whose msgSender() reverts: falls back to router-as-user => denied.
+        MockRouter router = new MockRouter();
+        router.setRevert(true);
+        vm.prank(lexifiOwner);
+        hook.setTrustedRouter(address(router), true);
+
+        vm.prank(address(mockPM));
+        vm.expectRevert();
+        hook.beforeSwap(address(router), poolKey, _mediumSwap(), "");
+    }
+
+    function test_TxOrigin_NoLongerGrantsAccess() public {
+        // tx.origin is a verified trader, but sender is unverified => denied.
+        vm.prank(address(mockPM), verifiedTrader);
+        vm.expectRevert();
+        hook.beforeSwap(unverifiedTrader, poolKey, _mediumSwap(), "");
+    }
+
+    function test_SetTrustedRouter_OnlyOwner() public {
+        vm.prank(dexOperator);
+        vm.expectRevert(LexifiHook.OnlyOwner.selector);
+        hook.setTrustedRouter(address(0x123), true);
+    }
+}
+
+contract MockRouter {
+    address internal user;
+    bool internal shouldRevert;
+
+    function setUser(address u) external { user = u; }
+    function setRevert(bool r) external { shouldRevert = r; }
+
+    function msgSender() external view returns (address) {
+        require(!shouldRevert, "router: no context");
+        return user;
     }
 }

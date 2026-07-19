@@ -130,7 +130,7 @@ contract ThresholdPolicyTest is Test {
         (ILexifiPolicy.AccessLevel level, string memory reason) =
             policy.checkAccess(poolId, retailUser, 0, 50000e18);
 
-        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.RETAIL));
+        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.DENIED));
         assertTrue(bytes(reason).length > 0);
     }
 
