@@ -6,6 +6,7 @@ import {CoinbaseEASProvider} from "../src/policies/CoinbaseEASProvider.sol";
 import {ThresholdPolicy} from "../src/policies/ThresholdPolicy.sol";
 import {RegionalPolicy} from "../src/policies/RegionalPolicy.sol";
 import {InstitutionalPolicy} from "../src/policies/InstitutionalPolicy.sol";
+import {SelfAttestationProvider} from "../src/policies/SelfAttestationProvider.sol";
 
 /// @notice Deploys the provider + 3 policy templates.
 ///         OWNER (Smart Wallet / Safe) controls the policies — NOT the deployer key.
@@ -38,6 +39,9 @@ contract DeployPolicies is Script {
 
         InstitutionalPolicy institutional = new InstitutionalPolicy(owner);
         console.log("InstitutionalPolicy:", address(institutional));
+
+        SelfAttestationProvider selfAttest = new SelfAttestationProvider(owner, "Lexifi Operator KYC");
+        console.log("SelfAttestationProvider:", address(selfAttest));
 
         vm.stopBroadcast();
 

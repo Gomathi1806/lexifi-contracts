@@ -74,12 +74,134 @@ Coinbase Smart Wallet / Safe) on the new LexifiHook:
 - README(s), technical doc §10, lexifiio.vercel.app deployment
 - Mark `0xb8ab…2880`, `0x8916…3DF9`, and `0x9Da4…E1d7` as **deprecated/compromised** everywhere.
 
-## Deployed-address log (fill in as you go)
+## v2 deployment (2026-07-19) — DEPRECATED
 
-| Contract | v2 address (Base mainnet) |
+Deployed with Coinbase Smart Wallet `0xB469…6d68` as owner. Unmanageable because
+BaseScan Write Contract can't send owner-only txns from Coinbase Smart Wallet
+(gas-field bug: `maxPriorityFeePerGas cannot be null`). v2 contracts still exist
+on-chain but are effectively orphaned — do not reference them anywhere.
+
+v2 addresses (do not use): hook `0x67a9…2880`, provider `0xF701…A7ea`,
+threshold `0x0b37…b74b`, regional `0xcF06…d6e2`, institutional `0xbe8a…88d5`.
+
+## v3 deployment — Safe-owned — 2026-07-21 ✅
+
+| Contract | v3 address (Base mainnet) |
 |---|---|
-| LexifiHook | |
-| CoinbaseEASProvider | |
-| ThresholdPolicy | |
-| RegionalPolicy | |
-| InstitutionalPolicy | |
+| LexifiHook | `0xfE92DE69d2dDdcAc2f864C4cF84e8aD5E17D2880` |
+| CoinbaseEASProvider | `0xb5DEC225A104A276671A765abA3890Ec88a2Ca27` |
+| ThresholdPolicy | `0x75f4913F53b694fDda95E49456d163ca7AEF4199` |
+| RegionalPolicy | `0xa99A89CD5A61e975fb11047d3ed455fCcaD9A44f` |
+| InstitutionalPolicy | `0xaD09fc63080736b1dFC4048F3589C481225db5fb` |
+| SelfAttestationProvider | `0x344E4917360F5b44680D097c5E4904Ac62c00483` |
+
+Owner (all): Safe `0x17ae269e27524E82F29ca76Cb39A151A90a34B7e` (1/1 on Base,
+signer `0x4122c8b8080c8960F52d3D1cCb3A8d85EFF1f039` in Rabby). All verified on
+BaseScan. Hook + policies compiled from same code as v2 — no code change.
+
+**Deployer/signer are the same address** (`0x4122…f039`, Rabby). Key is in
+`.env`; remove after Safe operations settle. Never commit `.env`.
+
+**Completed:**
+1. ✅ Trusted routers set via Safe TX Builder (Universal Router + PositionManager).
+2. ✅ Phase 1 proof-of-loop (2026-07-27) — see below.
+3. ✅ Phase 2 denial-persistent audit trail (2026-08-02) — see below.
+
+**Still pending:**
+1. Retire everything in docs/site pointing at v1 or v2 addresses.
+
+**Recently completed:**
+4. ✅ SelfAttestationProvider deployed to Base mainnet (2026-08-02) — `0x344E4917360F5b44680D097c5E4904Ac62c00483`, verified on BaseScan, SDK addresses updated.
+
+## Phase 1 — Proof of Loop (2026-07-27) ✅
+
+Pool: ETH / TestToken (`0x3FC84d416A0F93578dB538737c34599138012402`)
+PoolId: `0x49081a9762db094a03e395f3d38272a16b69c753c904d7e4dfd16bd09a47a718`
+Policy: ThresholdPolicy (`0x75f4…4199`), noKycLimit=0.0001 ETH, swapMinimum=RETAIL
+Helper: Phase1Prover (`0xe7312b5A058fF42C269922BFCe1CB6B19bAcE35B`)
+
+| Step | TX Hash | Status |
+|---|---|---|
+| Deploy TestToken | `0x1227760e…dc67` | ✅ |
+| Deploy Phase1Prover | `0xab1f963b…2d1a` | ✅ |
+| Initialize pool | `0xf8d7fd20…9614` | ✅ |
+| Seed liquidity (0.001 ETH) | `0xcbfe465f…308c` | ✅ |
+| setPoolPolicy → ThresholdPolicy | `0xcf3d2f17…68e1` | ✅ |
+| setPoolConfig (thresholds) | `0x921bff86…33ee` | ✅ |
+| **PASSING swap** (0.00001 ETH, below threshold) | `0x593f00ab…fbda` | ✅ ComplianceCheckPassed |
+| **DENIED swap** (0.001 ETH, above threshold) | `0x7eba76ae…4c22` | ❌ ComplianceDenied(RETAIL required, DENIED actual, "Swap requires basic verification") |
+
+Hook state after: totalPools=1, totalChecks=1.
+Deployer balance remaining: ~0.00425 ETH.
+
+## Phase 2 — Denial-Persistent Audit Trail (2026-08-02) ✅
+
+**Problem:** Solidity reverts roll back ALL state changes including events.
+`ComplianceCheckFailed` and `AuditRecord` events emitted in `_enforceCompliance`
+before the `ComplianceDenied` revert are lost forever — making denied swap audit
+records invisible on-chain. A compliance system that can't prove it denied
+something has a credibility gap.
+
+**Solution:** Reconstruct denial records from on-chain failed transaction data.
+Failed transactions (status=0) persist on-chain with their full calldata. The
+dashboard decodes the swap function input from failed transactions to known
+routers (Phase1Prover, Universal Router) and marks them as compliance denials.
+
+**How it works:**
+1. **Passes**: Indexed from `ComplianceCheckPassed` event logs on the hook
+   (these persist because the transaction succeeds).
+2. **Denials**: Discovered from failed transactions to known router addresses
+   via Blockscout V2 API. The `swap()` calldata is decoded to extract amount,
+   pool key, and user. The "RECONSTRUCTED" badge indicates the record was
+   recovered from a reverted transaction.
+3. **Policy registrations**: Indexed from `PoolPolicySet` events on the hook.
+
+**Dashboard page:** `/audit` in lexifi-dashboard. No wallet connection required.
+Fetches data from Blockscout V2 API (public, no API key, CORS-enabled).
+
+**Files created/modified:**
+- `lexifi-dashboard/src/app/audit/page.tsx` — Audit trail page (client-side)
+- `lexifi-dashboard/src/config/abi.ts` — Added event topic hashes + Phase1Prover ABI
+- `lexifi-dashboard/src/config/contracts.ts` — Added Phase1 addresses, Blockscout API
+- `lexifi-dashboard/src/components/Nav.tsx` — Added Audit Trail nav link
+
+## Phase 3 — Productize (2026-08-02) ✅
+
+1. **`@lexifi/sdk`** — Published npm package with all ABIs, deployment addresses,
+   types, and `fetchAuditTrail()` function. ESM + TypeScript, peer dep on viem.
+2. **Dashboard policy config** — Pools page now has config forms for all three
+   policies (Threshold, Regional, Institutional) with auto pool ID computation,
+   on-chain config loading, and AccessLevel dropdowns.
+3. **SDK import refactor** — Dashboard imports ABIs and addresses from `@lexifi/sdk`
+   instead of duplicating them locally.
+
+## Phase 4 — Second Verification Provider (2026-08-02) ✅
+
+**Contract:** `SelfAttestationProvider` — implements `IVerificationProvider`. The
+DEX operator verifies users off-chain (their own KYC/AML process) then stamps
+wallets on-chain with an access tier. Supports:
+- `attest(user, tier, expiry)` — single user attestation
+- `attestBatch(users[], tiers[], expiries[])` — bulk registration
+- `revoke(user)` — revoke access
+- Expiry support (0 = never expires)
+- Ownership transfer
+
+**Why this provider:** Enables InstitutionalPolicy's N-of-M verification to work
+with real, independent providers. A pool can require both Coinbase EAS verification
+AND operator KYC sign-off — two independent trust anchors.
+
+**Tests:** 21 tests covering attestation, batch, revocation, expiry, ownership,
+and multi-provider InstitutionalPolicy integration (2-of-2 setup with
+MockVerificationProvider as Coinbase stand-in).
+
+**Files:**
+- `src/policies/SelfAttestationProvider.sol` — Contract
+- `test/SelfAttestationProvider.t.sol` — 21 Foundry tests
+- `script/DeployPolicies.s.sol` — Updated to deploy SelfAttestationProvider
+- `lexifi-sdk/` — Added `SelfAttestationProviderAbi`, `selfAttestationProvider` address field
+- `lexifi-dashboard/src/app/checker/page.tsx` — Multi-provider verification display
+
+**Deploy steps:** Run the updated `DeployPolicies.s.sol` script (it now deploys
+6 contracts: CoinbaseEASProvider, ThresholdPolicy, RegionalPolicy,
+InstitutionalPolicy, SelfAttestationProvider). Then update the SDK address to
+the deployed `selfAttestationProvider` address.
