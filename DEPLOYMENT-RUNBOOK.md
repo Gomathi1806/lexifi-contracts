@@ -253,7 +253,87 @@ different swap and LP requirements at all.
 policies and re-pointing pools** — the policies are immutable and Safe-owned. Sequence any fix
 with that in mind.
 
-## Phase 6 — Policy audit fixes (code 2026-09-07) — AWAITING REDEPLOY ⚠️
+## Phase 7 — Registry-backed policies, DEPLOYED + LIVE on Base (2026-09-07) ✅
+
+Supersedes Phase 6. The v2 policies from `DeployPolicyFixes.s.sol` were never deployed — v3
+carries the same three audit fixes plus the config registry and the fail-closed default, so
+deploying both would have been redundant.
+
+| Contract | Base mainnet address |
+|---|---|
+| LexifiPolicyConfig | `0x9E005c201AEe5Db3c67b3658Cc18723dfDEe42E1` |
+| RegionalPolicyV3 | `0x5309C741094e8901f9D2Ad1f31DC560006542a82` |
+| InstitutionalPolicyV3 | `0xdA93C63212CF41dB3680319B3839f254aC319177` |
+
+All three verified on BaseScan first try. Owner of both policies: Safe `0x17ae…4B7e`.
+`policyVersion()` = 3. Cost ~0.0000257 ETH.
+
+### What changed
+
+**Option C — config moved out of the policies.** `LexifiPolicyConfig` stores config keyed by
+`(family, poolId)`, where `family` is a constant the policy declares
+(`keccak256("lexifi.policy.regional")` = `0x0e5377…b6cd`,
+`keccak256("lexifi.policy.institutional")` = `0x454961…75d8`) and keeps across logic versions.
+A future RegionalPolicy v4 reads the same config with **no migration at all**. Storage is
+opaque `bytes`; the registry never decodes and therefore never validates.
+
+**Option D — unconfigured pools now DENY.** v1 returned `INSTITUTIONAL` for `!active`, which
+the level comparison passed, so a pool pointed at a policy but never configured traded freely.
+A forgotten migration was a silent compliance outage. It now fails closed.
+
+> **The subtle part, and the bug the tests caught.** Enforcement everywhere is
+> `checkAccess().level >= minimumLevel(operation)`. Returning `DENIED` from *both* sides makes
+> that `0 >= 0`, which **passes**. Fail-closed therefore requires `checkAccess` → `DENIED` and
+> `minimumLevel` → `INSTITUTIONAL` (the maximum). The first implementation returned `DENIED`
+> from both and silently allowed everyone — exactly the same shape as audit Findings 2 and 3.
+> Any future "deny" path must be checked against this comparison, not eyeballed.
+
+**Option B — migration.** Config was migrated on-chain: `DeployPolicyRegistry.s.sol` reads the
+live v1 config with `regionConfigs(poolId)` and writes those exact bytes into the registry in
+the same broadcast, so the registry cannot disagree with what v1 held. `setConfigBatch` does
+several pools atomically. There is deliberately **no** legacy-decoding function baked into a
+permanent contract — that would be attack surface on a compliance path for a one-off need.
+
+**Because the registry cannot validate, the policies normalise at read time:** Regional clamps
+`minLp` UP to `minSwap` (closes Finding 1 whatever the stored bytes say); Institutional clamps
+`minimumProviders` down to the provider count and raises a stored `0` to `1`.
+`RegionalPolicyV3.validateConfig(poolId)` reports whether the clamp was needed.
+
+### Live cutover — pool `0x54545d84…f424` (WETH/USDC, fee 3000, tickSpacing 60)
+
+Re-pointed from RegionalPolicy v1 to v3 in tx
+`0xa71336d6edc83959dd806b527b3e393e051d3e6a24ed6d75eb566fa13bf6b59b` (block 51004393), sent by
+the pool admin `0x4122…f039` — note the pool admin is that EOA, **not** the Safe.
+
+Verified before the cutover: migrated config `(true,false,2,2,true)` is byte-identical to v1,
+and v1/v3 returned the same allow/deny verdict for every address tested on both operations.
+That on-chain comparison is weak evidence on its own — every verdict was DENY, because the pool
+requires ACCREDITED and no test address holds that attestation. The discriminating equivalence
+proof is `test_B_MigratedConfigMatchesLegacyBehaviour`, which exercises verified and unverified
+users against both implementations.
+
+After the cutover, `LexifiComplianceAdapter.checkCompliance` returns
+`(false, 0, 2, "No verification found")` — enforcing through v3. The Phase 1 pool
+`0x49081a97…a718` still points at ThresholdPolicy and was not touched.
+
+**Tests: 148 pass** (was 127), including 21 new registry tests.
+
+### Traps
+
+1. **Any OTHER pool re-pointed at a v3 policy without registry config will stop trading.**
+   That is option D working as intended, but it is a live outage if you do it unprepared.
+   Write the config first (or in the same batch), then `setPoolPolicy`.
+2. **Registry pool admin is first-writer-wins** and is currently the deployer EOA
+   `0x4122…f039` for the migrated pool. To hand it to the Safe:
+   `registry.transferPoolAdmin(family, poolId, 0x17ae…4B7e)`. There is deliberately no owner
+   override on the registry.
+3. `setRegionConfig` / `setInstitutionalConfig` **no longer exist** on v3. Writes go through
+   `LexifiPolicyConfig.setConfig`. The dashboard pools page was updated to match; anything else
+   calling the old functions is writing to a policy no live pool uses.
+4. `ThresholdPolicy` is unchanged and still keeps its own config — it was not part of this
+   work and its swap/LP asymmetry remains open by design.
+
+## Phase 6 — Policy audit fixes (code 2026-09-07) — SUPERSEDED BY PHASE 7 ✅
 
 All three findings above are fixed in source and covered by tests. **Nothing has changed
 on-chain yet** — the deployed policies are immutable, so the fix only lands when the two
