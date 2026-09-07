@@ -206,7 +206,7 @@ MockVerificationProvider as Coinbase stand-in).
 InstitutionalPolicy, SelfAttestationProvider). Then update the SDK address to
 the deployed `selfAttestationProvider` address.
 
-## POLICY AUDIT — 3 open findings (2026-09-04) ⚠️
+## POLICY AUDIT — 3 findings (2026-09-04) — FIXED IN CODE 2026-09-07, NOT YET DEPLOYED ⚠️
 
 Follow-up to the swap/LP hole found in `ThresholdPolicy`. PoC tests in
 `test/PolicyAsymmetryAudit.t.sol` (7 tests). **All three findings affect contracts already
@@ -252,6 +252,67 @@ different swap and LP requirements at all.
 **Because all three are in deployed contracts, fixing them means redeploying the affected
 policies and re-pointing pools** — the policies are immutable and Safe-owned. Sequence any fix
 with that in mind.
+
+## Phase 6 — Policy audit fixes (code 2026-09-07) — AWAITING REDEPLOY ⚠️
+
+All three findings above are fixed in source and covered by tests. **Nothing has changed
+on-chain yet** — the deployed policies are immutable, so the fix only lands when the two
+policies are redeployed and pools are re-pointed. Until then Base mainnet still runs the
+buggy v1 policies.
+
+| Finding | Fix | Where |
+|---|---|---|
+| 1 — RegionalPolicy `minLp < minSwap` LP backdoor | `setRegionConfig` reverts `LpBelowSwapMinimum()`. `minLp > minSwap` is still allowed — only the backdoor direction is barred. | `RegionalPolicy.sol` |
+| 2 — `requireCountryAttestation` / `requireAccountAttestation` no-ops | Both branches now return `AccessLevel.DENIED` instead of the user's real level. | `RegionalPolicy.sol` |
+| 3 — InstitutionalPolicy N-of-M quorum not enforced | Returns `AccessLevel.DENIED` when `passed < cfg.minimumProviders`. | `InstitutionalPolicy.sol` |
+
+`policyVersion()` on both is bumped **1 → 2** so an integrator can tell fixed from buggy
+on-chain. `ThresholdPolicy`, `CoinbaseEASProvider`, `SelfAttestationProvider`, `LexifiHook`
+and the Phase 5 contracts are **unchanged** — do not redeploy them.
+
+**Tests: 127 pass** (was 124). The 7 PoC tests in `test/PolicyAsymmetryAudit.t.sol` were
+inverted to assert correct behaviour and 3 were added (minLp-above-minSwap is still allowed;
+account-attestation branch denies; quorum-met still admits).
+`test_PartiallyVerified_OnlyOneProvider_Denied` in `InstitutionalPolicy.t.sol` — the test that
+asserted only `bytes(reason).length > 0` and so reported green on an allowed case — now asserts
+the level the enforcement path actually compares.
+
+**Still unfixed by design:** `ThresholdPolicy` gates swaps on trade size but LPs on tier alone.
+That asymmetry is inherent to the policy, not a misconfiguration, so config validation cannot
+remove it. On the Permissioned Pools path `LexifiAllowlistChecker.liquidityRequiresSwap`
+(default true) closes it; **pools using `LexifiHook` directly remain exposed.** Closing it in
+the policy would need an LP-side amount rule, which changes the policy's semantics — a separate
+decision, not an audit fix.
+
+### Redeploy — not yet run
+
+`script/DeployPolicyFixes.s.sol` deploys **only** the two changed policies and reuses the live
+`CoinbaseEASProvider` (do NOT re-run `DeployPolicies.s.sol`, which would replace all five).
+
+```bash
+cd lexifi-v2-secure && source .env
+COINBASE_PROVIDER=0xb5DEC225A104A276671A765aba3890EC88A2ca27 \
+  forge script script/DeployPolicyFixes.s.sol --rpc-url https://mainnet.base.org
+```
+
+Dry run verified against live Base state 2026-09-07: simulates clean, est. **0.0000145 ETH**.
+Add `--broadcast --verify` to execute.
+
+Then, in order:
+1. **Re-point each affected pool** — `LexifiHook.setPoolPolicy(poolKey, <v2 address>)`, called by
+   that pool's **pool admin** (whoever first called `setPoolPolicy` for it — not necessarily the
+   Safe). `requireApproval` is currently `false` on the hook, so no owner pre-approval is needed;
+   if it is ever enabled, the Safe must `approvePolicy` first.
+2. **Re-apply every pool config on the new policy.** `setRegionConfig` / `setInstitutionalConfig`
+   state does NOT migrate. A pool pointed at a v2 policy with no config has `active == false`,
+   which the policies treat as **open access** — skipping this step silently disables compliance
+   on that pool. This is the dangerous step; do it in the same session as step 1.
+3. Update `lexifi-sdk/src/addresses.ts`, both dashboard READMEs, technical doc §10, then sync
+   `lexifi-dashboard/lexifi-sdk/` and redeploy the dashboard.
+
+Current live pool count is 2 (`hook.totalPools()`), both from Phase 1 / Aug 7 testing on
+`ThresholdPolicy` — so **no pool is known to be using RegionalPolicy or InstitutionalPolicy
+today**, and the redeploy can be done without a live migration. Confirm before assuming.
 
 ## Phase 5 — Uniswap v4 Permissioned Pools integration (deployed 2026-09-04) ✅
 

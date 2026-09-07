@@ -34,6 +34,9 @@ contract RegionalPolicy is ILexifiPolicy {
     address public owner;
 
     error Unauthorized();
+    /// @notice minLp below minSwap would let an address barred from buying the asset acquire
+    ///         it by minting a position instead. See AUDIT FIX (Finding 1) in setRegionConfig.
+    error LpBelowSwapMinimum();
 
     constructor(address _provider, address _owner) {
         require(_provider != address(0) && _owner != address(0), "zero address");
@@ -57,13 +60,19 @@ contract RegionalPolicy is ILexifiPolicy {
             return (AccessLevel.DENIED, "No verification found");
         }
 
+        // AUDIT FIX (Finding 2): both branches must return DENIED, not the user's real level.
+        // The hook enforces `checkAccess().level >= minimumLevel(operation)` and discards
+        // `reason`, so returning `level` made these flags no-ops: an EU-only pool configured
+        // with requireCountry=true and minSwap=RETAIL admitted users with no country
+        // attestation. ThresholdPolicy already returns DENIED in the equivalent branches.
+
         // Check if country attestation is required but user only has account
         if (cfg.requireCountryAttestation && v.tier < 2) {
-            return (level, "Country verification required for this pool");
+            return (AccessLevel.DENIED, "Country verification required for this pool");
         }
 
         if (cfg.requireAccountAttestation && v.tier < 1) {
-            return (level, "Account verification required");
+            return (AccessLevel.DENIED, "Account verification required");
         }
 
         return (level, "");
@@ -85,8 +94,10 @@ contract RegionalPolicy is ILexifiPolicy {
         return "Lexifi Regional Policy";
     }
 
+    /// @dev v2 = audit fixes (see AUDIT FIX comments above). v1 is the version deployed to
+    ///      Base mainnet on 2026-07-21, whose requirement branches did not deny.
     function policyVersion() external pure override returns (uint256) {
-        return 1;
+        return 2;
     }
 
     /// @notice Configure regional requirements for a pool
@@ -100,6 +111,12 @@ contract RegionalPolicy is ILexifiPolicy {
         if (poolAdmins[poolId] != address(0) && poolAdmins[poolId] != msg.sender) {
             revert Unauthorized();
         }
+
+        // AUDIT FIX (Finding 1): `checkAccess` ignores `operation`, so swap and LP diverge only
+        // through `minimumLevel`. Accepting minLp < minSwap therefore reopened the LP backdoor —
+        // an address denied a swap could still mint a position in the same asset. Enforce the
+        // ordering at config time so the divergence cannot be created.
+        if (uint8(minLp) < uint8(minSwap)) revert LpBelowSwapMinimum();
 
         regionConfigs[poolId] = RegionConfig({
             requireCountryAttestation: requireCountry,

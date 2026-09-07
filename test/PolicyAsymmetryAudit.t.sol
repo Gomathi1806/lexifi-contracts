@@ -13,6 +13,7 @@ import {LexifiHook} from "../src/LexifiHook.sol";
 import {ILexifiPolicy} from "../src/interfaces/ILexifiPolicy.sol";
 import {RegionalPolicy} from "../src/policies/RegionalPolicy.sol";
 import {InstitutionalPolicy} from "../src/policies/InstitutionalPolicy.sol";
+import {ThresholdPolicy} from "../src/policies/ThresholdPolicy.sol";
 import {LexifiComplianceAdapter} from "../src/integrations/LexifiComplianceAdapter.sol";
 import {LexifiAllowlistChecker} from "../src/integrations/LexifiAllowlistChecker.sol";
 import {ILexifiCompliance} from "../src/integrations/ILexifiCompliance.sol";
@@ -35,6 +36,7 @@ contract PolicyAsymmetryAuditTest is Test {
     LexifiComplianceAdapter complianceAdapter;
     RegionalPolicy regionalPolicy;
     InstitutionalPolicy institutionalPolicy;
+    ThresholdPolicy thresholdPolicy;
     MockVerificationProvider provider;
     MockVerificationProvider provider2;
     MockVerificationProvider provider3;
@@ -45,8 +47,10 @@ contract PolicyAsymmetryAuditTest is Test {
 
     PoolKey regionalKey;
     PoolKey institutionalKey;
+    PoolKey thresholdKey;
     bytes32 regionalPoolId;
     bytes32 institutionalPoolId;
+    bytes32 thresholdPoolId;
 
     uint8 constant OP_SWAP = 0;
     uint8 constant OP_LP = 1;
@@ -61,15 +65,19 @@ contract PolicyAsymmetryAuditTest is Test {
         provider3 = new MockVerificationProvider();
         regionalPolicy = new RegionalPolicy(address(provider), owner);
         institutionalPolicy = new InstitutionalPolicy(owner);
+        thresholdPolicy = new ThresholdPolicy(address(provider), owner);
         complianceAdapter = new LexifiComplianceAdapter(address(hook));
 
         regionalKey = _key(3000);
         institutionalKey = _key(500);
+        thresholdKey = _key(10000);
         regionalPoolId = PoolId.unwrap(regionalKey.toId());
         institutionalPoolId = PoolId.unwrap(institutionalKey.toId());
+        thresholdPoolId = PoolId.unwrap(thresholdKey.toId());
 
         hook.setPoolPolicy(regionalKey, address(regionalPolicy));
         hook.setPoolPolicy(institutionalKey, address(institutionalPolicy));
+        hook.setPoolPolicy(thresholdKey, address(thresholdPolicy));
 
         provider.setUser(retailUser, 1, true); // RETAIL, account-verified only
         provider.setUser(accreditedUser, 2, true); // ACCREDITED
@@ -89,7 +97,16 @@ contract PolicyAsymmetryAuditTest is Test {
 
     /// @dev The real gate: what LexifiHook and LexifiAllowlistChecker both act on.
     function _allowed(bytes32 poolId, address user, uint8 operation) internal view returns (bool) {
-        (bool allowed,,,) = complianceAdapter.checkCompliance(poolId, user, operation, 0);
+        return _allowedAt(poolId, user, operation, 0);
+    }
+
+    /// @dev Same gate, at a specific notional — ThresholdPolicy is the one policy that reads it.
+    function _allowedAt(bytes32 poolId, address user, uint8 operation, uint256 amount)
+        internal
+        view
+        returns (bool)
+    {
+        (bool allowed,,,) = complianceAdapter.checkCompliance(poolId, user, operation, amount);
         return allowed;
     }
 
@@ -97,22 +114,38 @@ contract PolicyAsymmetryAuditTest is Test {
     //  FINDING 1 — RegionalPolicy: same asymmetry as ThresholdPolicy
     // ═══════════════════════════════════════════
 
-    /// @dev `checkAccess` ignores `operation`, so swap and LP differ only through
-    ///      `minimumLevel`. `setRegionConfig` accepts minSwap and minLp independently with no
-    ///      ordering constraint, so any admin setting minLp < minSwap reopens the LP backdoor:
-    ///      an address barred from buying the asset can still mint a position in it.
-    function test_Finding1_RegionalPolicy_LpBackdoorWhenMinLpBelowMinSwap() public {
+    /// @dev FIXED. `checkAccess` ignores `operation`, so swap and LP differ only through
+    ///      `minimumLevel`. `setRegionConfig` used to accept minSwap and minLp independently with
+    ///      no ordering constraint, so an admin setting minLp < minSwap reopened the LP backdoor:
+    ///      an address barred from buying the asset could still mint a position in it. The config
+    ///      that creates the divergence is now rejected outright.
+    function test_Finding1_RegionalPolicy_RejectsMinLpBelowMinSwap() public {
         vm.prank(owner);
+        vm.expectRevert(RegionalPolicy.LpBelowSwapMinimum.selector);
         regionalPolicy.setRegionConfig(
             regionalKey.toId(),
             false,
             false,
             ILexifiPolicy.AccessLevel.ACCREDITED, // minSwap
-            ILexifiPolicy.AccessLevel.RETAIL // minLp  <-- below minSwap
+            ILexifiPolicy.AccessLevel.RETAIL // minLp  <-- below minSwap, now rejected
+        );
+    }
+
+    /// @dev minLp ABOVE minSwap is still allowed — stricter liquidity than swapping is a
+    ///      legitimate configuration. Only the backdoor direction is barred.
+    function test_Finding1_RegionalPolicy_AllowsMinLpAboveMinSwap() public {
+        vm.prank(owner);
+        regionalPolicy.setRegionConfig(
+            regionalKey.toId(),
+            false,
+            false,
+            ILexifiPolicy.AccessLevel.RETAIL, // minSwap
+            ILexifiPolicy.AccessLevel.ACCREDITED // minLp  <-- stricter, fine
         );
 
-        assertFalse(_allowed(regionalPoolId, retailUser, OP_SWAP), "swap should be denied");
-        assertTrue(_allowed(regionalPoolId, retailUser, OP_LP), "LP backdoor is open");
+        assertTrue(_allowed(regionalPoolId, retailUser, OP_SWAP), "retail may swap");
+        assertFalse(_allowed(regionalPoolId, retailUser, OP_LP), "retail may not LP");
+        assertTrue(_allowed(regionalPoolId, accreditedUser, OP_LP), "accredited may LP");
     }
 
     /// @dev Not vulnerable when configured sanely — unlike ThresholdPolicy, which opens the hole
@@ -135,12 +168,12 @@ contract PolicyAsymmetryAuditTest is Test {
     //  FINDING 2 — RegionalPolicy: requireCountryAttestation does not deny
     // ═══════════════════════════════════════════
 
-    /// @dev The country branch returns `(level, reason)` — the user's REAL level — instead of
-    ///      `AccessLevel.DENIED` the way ThresholdPolicy does. The hook only compares levels and
-    ///      discards `reason` on success, so the flag changes nothing unless minSwapLevel is
-    ///      already >= ACCREDITED, in which case it is redundant. An EU-only pool configured
-    ///      with requireCountry=true and minSwap=RETAIL admits users with no country attestation.
-    function test_Finding2_RegionalPolicy_RequireCountryAttestationIsANoOp() public {
+    /// @dev FIXED. The country branch used to return `(level, reason)` — the user's REAL level —
+    ///      instead of `AccessLevel.DENIED`. The hook only compares levels and discards `reason`
+    ///      on success, so the flag changed nothing unless minSwapLevel was already >= ACCREDITED,
+    ///      in which case it was redundant. An EU-only pool with requireCountry=true and
+    ///      minSwap=RETAIL admitted users with no country attestation. It now denies them.
+    function test_Finding2_RegionalPolicy_RequireCountryAttestationDenies() public {
         vm.prank(owner);
         regionalPolicy.setRegionConfig(
             regionalKey.toId(),
@@ -150,25 +183,50 @@ contract PolicyAsymmetryAuditTest is Test {
             ILexifiPolicy.AccessLevel.RETAIL
         );
 
-        // The policy knows the requirement is unmet...
+        // retailUser is tier 1 (account only, no country attestation).
         (ILexifiPolicy.AccessLevel level, string memory reason) =
             regionalPolicy.checkAccess(regionalKey.toId(), retailUser, OP_SWAP, 0);
         assertEq(reason, "Country verification required for this pool");
-        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.RETAIL));
+        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.DENIED), "must report DENIED");
 
-        // ...but the enforcement path lets them straight through anyway.
-        assertTrue(_allowed(regionalPoolId, retailUser, OP_SWAP), "country requirement not enforced");
+        // The enforcement path must now actually stop them.
+        assertFalse(_allowed(regionalPoolId, retailUser, OP_SWAP), "country requirement enforced");
+        assertFalse(_allowed(regionalPoolId, retailUser, OP_LP), "and on the LP path too");
+
+        // accreditedUser is tier 2 — country attested — and still gets through.
+        assertTrue(_allowed(regionalPoolId, accreditedUser, OP_SWAP), "attested user allowed");
+    }
+
+    /// @dev The sibling branch had the identical defect and the identical fix.
+    function test_Finding2_RegionalPolicy_RequireAccountAttestationDenies() public {
+        vm.prank(owner);
+        regionalPolicy.setRegionConfig(
+            regionalKey.toId(),
+            false,
+            true, // requireAccountAttestation
+            ILexifiPolicy.AccessLevel.DENIED,
+            ILexifiPolicy.AccessLevel.DENIED
+        );
+
+        address tierZeroButVerified = address(0x3333);
+        vm.prank(owner);
+        provider.setUser(tierZeroButVerified, 0, true); // verified, but tier 0
+
+        (ILexifiPolicy.AccessLevel level, string memory reason) =
+            regionalPolicy.checkAccess(regionalKey.toId(), tierZeroButVerified, OP_SWAP, 0);
+        assertEq(reason, "Account verification required");
+        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.DENIED), "must report DENIED");
     }
 
     // ═══════════════════════════════════════════
     //  FINDING 3 — InstitutionalPolicy: N-of-M is not enforced
     // ═══════════════════════════════════════════
 
-    /// @dev `highestTier` is only updated for providers that PASSED, so a user cleared by even
-    ///      one provider comes back at >= minimumTier. The policy then returns that level with an
-    ///      "Insufficient institutional verifications" reason — and the level comparison passes.
-    ///      The N-of-M quorum, the headline feature of this policy, never gates anything.
-    function test_Finding3_InstitutionalPolicy_QuorumNotEnforced() public {
+    /// @dev FIXED. `highestTier` is only updated for providers that PASSED, so a user cleared by
+    ///      even one provider came back at >= minimumTier. The policy returned that level with an
+    ///      "Insufficient institutional verifications" reason — and the level comparison passed.
+    ///      The N-of-M quorum, the headline feature of this policy, gated nothing. It now denies.
+    function test_Finding3_InstitutionalPolicy_QuorumEnforced() public {
         address[] memory providers = new address[](3);
         providers[0] = address(provider);
         providers[1] = address(provider2);
@@ -186,11 +244,36 @@ contract PolicyAsymmetryAuditTest is Test {
         (ILexifiPolicy.AccessLevel level, string memory reason) =
             institutionalPolicy.checkAccess(institutionalKey.toId(), accreditedUser, OP_SWAP, 0);
         assertEq(reason, "Insufficient institutional verifications");
+        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.DENIED), "must report DENIED");
+
+        assertFalse(
+            _allowed(institutionalPoolId, accreditedUser, OP_SWAP), "quorum shortfall enforced"
+        );
+        assertFalse(
+            _allowed(institutionalPoolId, accreditedUser, OP_LP), "and on the LP path too"
+        );
+    }
+
+    /// @dev Reaching quorum still admits the user — the fix denies short of N, nothing more.
+    function test_Finding3_InstitutionalPolicy_QuorumMetStillAllowed() public {
+        address[] memory providers = new address[](3);
+        providers[0] = address(provider);
+        providers[1] = address(provider2);
+        providers[2] = address(provider3);
+
+        vm.startPrank(owner);
+        institutionalPolicy.setInstitutionalConfig(
+            institutionalKey.toId(), providers, 2, ILexifiPolicy.AccessLevel.ACCREDITED
+        );
+        provider2.setUser(accreditedUser, 2, true); // second provider clears them: 2 of 3
+        vm.stopPrank();
+
+        (ILexifiPolicy.AccessLevel level, string memory reason) =
+            institutionalPolicy.checkAccess(institutionalKey.toId(), accreditedUser, OP_SWAP, 0);
+        assertEq(reason, "");
         assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.ACCREDITED));
 
-        assertTrue(
-            _allowed(institutionalPoolId, accreditedUser, OP_SWAP), "quorum shortfall not enforced"
-        );
+        assertTrue(_allowed(institutionalPoolId, accreditedUser, OP_SWAP), "quorum met, allowed");
     }
 
     /// @dev Positive control: a user no provider clears is still correctly denied, because
@@ -235,28 +318,38 @@ contract PolicyAsymmetryAuditTest is Test {
     //  MITIGATION — the checker already contains Finding 1
     // ═══════════════════════════════════════════
 
-    /// @dev On the Permissioned Pools path, `liquidityRequiresSwap` closes Finding 1 without any
-    ///      policy change. It does NOT help pools using LexifiHook directly.
-    function test_Mitigation_AllowlistCheckerClosesFinding1() public {
+    /// @dev `liquidityRequiresSwap` still matters after the three fixes, because ThresholdPolicy
+    ///      has an asymmetry that config validation cannot remove: it gates swaps on trade SIZE
+    ///      but gates LPs on tier alone, so a RETAIL address denied a large swap still clears the
+    ///      raw LP check. That is inherent to the policy, not a misconfiguration, so the checker
+    ///      flag remains the mitigation on the Permissioned Pools path. Pools using LexifiHook
+    ///      directly are still exposed to it — see the note in DEPLOYMENT-RUNBOOK.md.
+    function test_Mitigation_AllowlistCheckerClosesThresholdAsymmetry() public {
         vm.startPrank(owner);
-        regionalPolicy.setRegionConfig(
-            regionalKey.toId(),
-            false,
-            false,
-            ILexifiPolicy.AccessLevel.ACCREDITED,
-            ILexifiPolicy.AccessLevel.RETAIL
+
+        // Swaps above enhancedLimit demand ACCREDITED; LPs demand only RETAIL.
+        thresholdPolicy.setPoolConfig(
+            thresholdKey.toId(),
+            1, // noKycLimit
+            100, // enhancedLimit
+            ILexifiPolicy.AccessLevel.RETAIL, // lpMinimum
+            ILexifiPolicy.AccessLevel.RETAIL // swapMinimum
         );
+
+        // The asymmetry itself, straight through the enforcement path.
+        assertFalse(_allowedAt(thresholdPoolId, retailUser, OP_SWAP, 1000), "large swap denied");
+        assertTrue(_allowedAt(thresholdPoolId, retailUser, OP_LP, 1000), "raw LP check clears");
 
         address token = address(0xA55E7);
         LexifiAllowlistChecker checker =
             new LexifiAllowlistChecker(ILexifiCompliance(address(complianceAdapter)), owner);
 
-        // Coupled (default): the LP backdoor is closed.
-        checker.bindToken(token, regionalPoolId, 1, true);
+        // Coupled (default): LIQUIDITY_ALLOWED is withheld because SWAP_ALLOWED was denied.
+        checker.bindToken(token, thresholdPoolId, 1000, true);
         assertEq(uint16(PermissionFlag.unwrap(checker.checkAllowlist(retailUser, token))), 0x0000);
 
-        // Decoupled: the policy's raw answer comes through, backdoor and all.
-        checker.bindToken(token, regionalPoolId, 1, false);
+        // Decoupled: the policy's raw answer comes through, asymmetry and all.
+        checker.bindToken(token, thresholdPoolId, 1000, false);
         assertEq(uint16(PermissionFlag.unwrap(checker.checkAllowlist(retailUser, token))), 0x0002);
         vm.stopPrank();
     }

@@ -85,13 +85,19 @@ contract InstitutionalPolicyTest is Test {
         assertEq(bytes(reason).length, 0);
     }
 
+    /// @dev This test used to assert only `bytes(reason).length > 0`, which is true whether or
+    ///      not the user is actually denied — the hook discards `reason` whenever the level
+    ///      comparison passes. It therefore reported green while the N-of-M quorum gated nothing
+    ///      (audit Finding 3). It now asserts the level the enforcement path actually compares.
     function test_PartiallyVerified_OnlyOneProvider_Denied() public view {
         // Only 1 of 3 passed, need 2 of 3
         (ILexifiPolicy.AccessLevel level, string memory reason) =
             policy.checkAccess(poolId, partiallyVerified, 0, 0);
 
-        // Level returned is the highest they achieved, but they didn't meet minimum providers
-        assertTrue(bytes(reason).length > 0);
+        assertEq(reason, "Insufficient institutional verifications");
+        assertEq(uint8(level), uint8(ILexifiPolicy.AccessLevel.DENIED), "must be DENIED");
+        // The gate the hook applies: level >= minimumLevel(operation).
+        assertLt(uint8(level), uint8(policy.minimumLevel(poolId, 0)), "must fail the real gate");
     }
 
     function test_Unverified_Denied() public view {

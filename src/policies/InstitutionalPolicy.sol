@@ -59,9 +59,14 @@ contract InstitutionalPolicy is ILexifiPolicy {
             }
         }
 
+        // AUDIT FIX (Finding 3): must return DENIED, not the user's tier.
+        // `highestTier` is only raised by providers that PASSED, so a user cleared by even one
+        // provider came back at >= minimumTier. The hook enforces `checkAccess().level >=
+        // minimumLevel(operation)` and discards `reason`, so returning the tier here let a
+        // 1-of-3 user through a 2-of-3 pool — the N-of-M quorum gated nothing.
         if (passed < cfg.minimumProviders) {
             return (
-                AccessLevel(highestTier),
+                AccessLevel.DENIED,
                 "Insufficient institutional verifications"
             );
         }
@@ -82,8 +87,10 @@ contract InstitutionalPolicy is ILexifiPolicy {
         return "Lexifi Institutional Policy";
     }
 
+    /// @dev v2 = audit fixes (see AUDIT FIX comments above). v1 is the version deployed to
+    ///      Base mainnet on 2026-07-21, whose requirement branches did not deny.
     function policyVersion() external pure override returns (uint256) {
-        return 1;
+        return 2;
     }
 
     /// @notice Configure institutional requirements for a pool
