@@ -205,3 +205,171 @@ MockVerificationProvider as Coinbase stand-in).
 6 contracts: CoinbaseEASProvider, ThresholdPolicy, RegionalPolicy,
 InstitutionalPolicy, SelfAttestationProvider). Then update the SDK address to
 the deployed `selfAttestationProvider` address.
+
+## POLICY AUDIT — 3 open findings (2026-09-04) ⚠️
+
+Follow-up to the swap/LP hole found in `ThresholdPolicy`. PoC tests in
+`test/PolicyAsymmetryAudit.t.sol` (7 tests). **All three findings affect contracts already
+deployed to Base mainnet.** No pool is known to be configured into any of them today, but they
+must be fixed before an issuer relies on these policies.
+
+> Method note: assertions must go through the enforcement comparison
+> (`checkAccess().level >= minimumLevel(operation)`), not `checkAccess` alone. The hook discards
+> the `reason` string whenever the level comparison passes, so a test asserting only on `reason`
+> proves nothing. `test_PartiallyVerified_OnlyOneProvider_Denied` in `InstitutionalPolicy.t.sol`
+> is exactly that mistake — it is named "Denied" and reports green on a case that is allowed.
+
+**Finding 1 — `RegionalPolicy` swap/LP asymmetry (config-dependent).**
+`checkAccess` ignores `operation`, so swap and LP diverge only via `minimumLevel`.
+`setRegionConfig` accepts `minSwap` and `minLp` independently with no ordering constraint, so
+any admin setting `minLp < minSwap` reopens the LP backdoor: an address barred from buying the
+asset can still mint a position in it. Safe when the minimums match.
+*Fix:* reject `minLp < minSwap` in `setRegionConfig`, or clamp at read time.
+*Mitigated on the Permissioned Pools path only* by `LexifiAllowlistChecker.liquidityRequiresSwap`
+(default true). Pools using `LexifiHook` directly are unprotected.
+
+**Finding 2 — `RegionalPolicy.requireCountryAttestation` does not deny.** The branch returns
+`(level, reason)` — the user's real level — instead of `AccessLevel.DENIED` the way
+`ThresholdPolicy` does. The flag therefore changes nothing unless `minSwapLevel` is already
+>= ACCREDITED, in which case it is redundant. An EU-only pool configured with
+`requireCountry=true, minSwap=RETAIL` admits users with no country attestation. The config
+option creates an illusion of enforcement.
+*Fix:* return `AccessLevel.DENIED` in both the country and account branches.
+
+**Finding 3 — `InstitutionalPolicy` N-of-M quorum is not enforced.** `highestTier` is only
+updated for providers that PASSED, so a user cleared by even one provider returns at
+>= `minimumTier`. The policy returns that level alongside "Insufficient institutional
+verifications" — and the level comparison passes. **The headline feature of this policy never
+gates anything.** A user verified by 1 of 3 required providers trades freely on a 2-of-3 pool.
+Users no provider clears are still denied (`highestTier` stays 0), so the bug is confined to
+partial-quorum cases — which is precisely the case the policy exists to handle.
+*Fix:* return `AccessLevel.DENIED` when `passed < cfg.minimumProviders`.
+
+`InstitutionalPolicy` is **not** vulnerable to Finding 1: its `minimumLevel` ignores
+`operation`, so swap and LP can never diverge. The flip side is that it cannot express
+different swap and LP requirements at all.
+
+**Because all three are in deployed contracts, fixing them means redeploying the affected
+policies and re-pointing pools** — the policies are immutable and Safe-owned. Sequence any fix
+with that in mind.
+
+## Phase 5 — Uniswap v4 Permissioned Pools integration (deployed 2026-09-04) ✅
+
+| Contract | Base mainnet address |
+|---|---|
+| LexifiComplianceAdapter | `0xe59fB4347Ca17aA94BBd62eBb9921877b06B68eE` |
+| LexifiAllowlistChecker | `0x3882cD541634b99DabB5443Dc0DC67Ba4eDe94bc` |
+
+Both verified on BaseScan. Deploy txs `0x0c7e59f1…a8c3` (adapter) and `0xd9edfd7b…6250` (checker),
+block `0x30819a5`. On-chain state confirmed: `checker.owner()` = Safe
+`0x17ae269e27524E82F29ca76Cb39A151A90a34B7e`, `checker.compliance()` = the adapter,
+`adapter.lexifiHook()` = `0xfE92DE69d2dDdcAc2f864C4cF84e8aD5E17D2880`, `paused()` = false,
+and `supportsInterface(IAllowlistChecker)` = true (the ERC-165 probe Uniswap's
+`PermissionsAdapter._updateAllowListChecker` runs).
+
+**The checker denies every address right now — no tokens are bound.** That is the intended
+resting state. See "Owner actions" below to activate it.
+
+> **Verification gotcha:** `--verify` during `--broadcast` failed with
+> `Could not detect deployment: Unable to locate ContractCode`. That is BaseScan indexer lag,
+> not a deployment failure — the receipts were already `status 0x1`. Re-running
+> `forge verify-contract` a few minutes later succeeded first try. Always check
+> `cast code <addr>` before assuming a deploy failed.
+
+### SDK (2026-09-04)
+
+`@lexifi/sdk` bumped to **0.2.0**. Added `complianceAdapter` + `allowlistChecker` to
+`LexifiDeployment`, plus `LexifiComplianceAdapterAbi`, `LexifiAllowlistCheckerAbi` and
+`PermissionFlags`. Base Sepolia entries are `NOT_DEPLOYED`. Builds clean.
+
+> **npm blocker (checked 2026-09-07):** `@lexifi/sdk` **is** on npm, but the published
+> version is **1.0.0 from 2026-04-07** — a v1-era build pointing at hook `0x607c…5BFb` and
+> zkPass `0x929E…b646`. Anyone running `npm install @lexifi/sdk` today gets that. Local
+> source is 0.2.0, which is *lower* than published, so `npm publish` will be rejected until
+> the version is bumped past 1.0.0 (suggest 1.1.0). Until then, do not advertise the npm
+> install path.
+
+### Original build notes
+
+**Why:** Uniswap shipped Permissioned Pools on 2026-07-23. Its `PermissionsAdapter`
+delegates every swap/LP decision to an `IAllowlistChecker` **the issuer must implement
+and deploy** — Uniswap provides the socket, not the compliance logic.
+`LexifiAllowlistChecker` is that implementation, backed by the existing policy registry
+instead of a hand-maintained address list.
+
+**Contracts:**
+- `src/integrations/LexifiAllowlistChecker.sol` — extends Uniswap's `BaseAllowlistChecker`
+  (`lib/v4-periphery/src/hooks/permissionedPools/`), composes on `ILexifiCompliance`.
+- `test/LexifiAllowlistChecker.t.sol` — 20 tests (124 total pass as of 2026-09-07).
+- `script/DeployAllowlistChecker.s.sol` — deploys `LexifiComplianceAdapter` (if not already
+  live) + `LexifiAllowlistChecker`.
+
+**Interface mismatch this contract resolves.** Uniswap asks
+`checkAllowlist(account, tokenAddress) -> PermissionFlag` (`SWAP_ALLOWED 0x0001`,
+`LIQUIDITY_ALLOWED 0x0002`). It passes **no poolId, no operation, and no trade size**.
+Two adaptations bridge it:
+1. `bindings[token] -> poolId` — Uniswap passes `tokenAddress` precisely so one checker can
+   serve several assets.
+2. `evaluationAmount` — pins the notional the policy is evaluated at, since trade size is
+   unknowable here. `bindToken` rejects 0, which would make `ThresholdPolicy` return
+   INSTITUTIONAL for everyone.
+
+**Known limits (state these to issuers):** `checkAllowlist` is `view`, so this path emits no
+`ComplianceCheckFailed` / `AuditRecord` — the Phase 2 audit trail has no counterpart here, and
+denials surface only as a revert inside the adapter. Size-dependent gating cannot be expressed
+at all. Pools needing either should keep using `LexifiHook` directly. The two are complementary.
+
+**Compliance fix found while writing the tests:** `ThresholdPolicy` gates swaps on trade size
+but gates LPs on tier alone, so a RETAIL address denied a large swap still cleared the raw LP
+check — it could acquire the permissioned asset by minting a position instead of buying it.
+Harmless inside `LexifiHook`; a real hole once it feeds an allowlist. Closed by the per-binding
+`liquidityRequiresSwap` flag (default true). Worth auditing the other policies for the same
+asymmetry.
+
+### Deploy steps
+
+Add `LEXIFI_HOOK` to `.env` (see `env.example`), then:
+
+```bash
+forge script script/DeployAllowlistChecker.s.sol --rpc-url https://mainnet.base.org
+```
+
+Dry run first (no `--broadcast`) — it checks `LEXIFI_HOOK` has code on-chain and prints the
+Safe calldata. Verified against live Base state 2026-09-04; est. cost ~0.000015 ETH. Then:
+
+```bash
+forge script script/DeployAllowlistChecker.s.sol --rpc-url https://mainnet.base.org --broadcast --verify
+```
+
+### Owner actions (Safe `0x17ae…4B7e` — NOT the deployer)
+
+The checker deploys with **zero bindings and therefore denies every address**. That is the
+correct initial state: nothing is live until the Safe deliberately binds a token.
+
+1. Set `PERMISSIONED_TOKEN` + `POOL_ID` in `.env` and re-run the script *without*
+   `--broadcast` to print the `bindToken` calldata.
+2. Execute it from Safe TX Builder against the checker address.
+3. Confirm with `checker.previewPermissions(user, token)` — it returns the human-readable
+   denial reason that the flag interface throws away.
+
+### Then
+
+- Issuer deploys a `PermissionsAdapter` via Uniswap's `PermissionsAdapterFactory`, passing this
+  checker as the allowlist checker. `_updateAllowListChecker` runs an ERC-165 probe, so the
+  checker must (and does) report `type(IAllowlistChecker).interfaceId`.
+- Add the checker + compliance adapter addresses to `lexifi-sdk/src/addresses.ts`.
+
+**Still to build:** an integration test against a real `PermissionsAdapter` from the factory.
+The current tests mirror the adapter's bitmask check
+(`(checkAllowlist(acct, tkn) & permission) == permission`, `PermissionsAdapter.sol:83`) rather
+than driving the real contract.
+
+**Note on other chains:** Coinbase Verifications attestations exist on Base only. On any other
+chain `CoinbaseEASProvider` resolves every address to tier 0, and because this stack fails
+closed that yields a pool denying everyone. The script warns when `block.chainid` is not Base.
+
+### Repo hygiene fix (2026-09-04)
+
+`foundry.toml` had `@openzeppelin/=lib/openzeppelin-contracts/`, a path that does not exist.
+Nothing imported it before; Uniswap's `BaseAllowlistChecker` does. Repointed to
+`lib/v4-core/lib/openzeppelin-contracts/`.
