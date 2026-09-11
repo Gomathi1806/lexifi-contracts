@@ -206,7 +206,13 @@ MockVerificationProvider as Coinbase stand-in).
 InstitutionalPolicy, SelfAttestationProvider). Then update the SDK address to
 the deployed `selfAttestationProvider` address.
 
-## POLICY AUDIT — 3 findings (2026-09-04) — FIXED IN CODE 2026-09-07, NOT YET DEPLOYED ⚠️
+## POLICY AUDIT — 3 findings (2026-09-04) — RESOLVED ON-CHAIN BY PHASE 7 (2026-09-07) ✅
+
+> **Status 2026-09-11:** all three are fixed in `RegionalPolicyV3` / `InstitutionalPolicyV3`,
+> live since Phase 7. The only pool on a Regional/Institutional policy (WETH/USDC) was
+> re-pointed to V3 and was confirmed on-chain again on 2026-09-11. The v1 policies are still
+> deployed, because contracts are immutable, but no pool points at them. The write-up below is
+> the original finding, kept as the record.
 
 Follow-up to the swap/LP hole found in `ThresholdPolicy`. PoC tests in
 `test/PolicyAsymmetryAudit.t.sol` (7 tests). **All three findings affect contracts already
@@ -253,11 +259,87 @@ different swap and LP requirements at all.
 policies and re-pointing pools** — the policies are immutable and Safe-owned. Sequence any fix
 with that in mind.
 
+## Phase 8 — Due-diligence cleanup (2026-09-11) ✅
+
+Nothing was deployed or changed on-chain. This phase made the three repositories reviewable from a
+clean clone and corrected the record.
+
+### Verified on-chain
+
+- WETH/USDC pool `0x54545d84902d4f5864c9d3f5c14d7dd961c8218dd41fef3292c4eac636e8f424` points at
+  RegionalPolicyV3, with registry config `(true, false, 2, 2, true)`. The Phase 1 pool points at
+  ThresholdPolicy. `hook.totalPools()` = 2.
+- The Safe owns the hook, every policy generation (v1, v2, V3), SelfAttestationProvider and
+  LexifiAllowlistChecker. CoinbaseEASProvider, LexifiComplianceAdapter and LexifiPolicyConfig have
+  no owner at all.
+- The Safe `0x17ae…4B7e` is 1-of-1 with signer `0x4122…f039`.
+- **Pool admin is still that EOA, not the Safe**, for both pools on the hook and for WETH/USDC in
+  the registry (Phase 7 trap 2). Open action.
+
+### Bytecode reproducibility
+
+Runtime bytecode of all nine live contracts and both orphaned v2 policies was compared with this
+repository's `out/` artifacts, masking `immutableReferences`. All eleven are identical. The metadata
+hash is identical for ten. `LexifiComplianceAdapter` differs in metadata only. Every dependency it
+shares with other contracts reproduces exactly, so the adapter file's own text at deploy time
+differed in non-executable content.
+
+`forge verify-bytecode` could not be used: Etherscan's free API no longer serves Base. The check
+compares `cast code` against the artifact directly.
+
+**Rule from now on:** deployed files under `src/` are frozen. Any edit, even to a comment, changes
+the metadata hash and breaks the match. Status notes go in the README and this runbook.
+
+### Contracts repo
+
+- `test/PermissionsAdapterIntegration.t.sol` (14 tests) closes Phase 5's "still to build". It runs
+  Uniswap's real `PermissionsAdapterFactory` and `PermissionsAdapter` with `LexifiAllowlistChecker`
+  and covers: the ERC-165 probe, positive and negative; swapping in the checker at runtime; the
+  verification and wrap/unwrap lifecycle; a paused checker not trapping tokens already in custody;
+  and a fuzzed property that adapter, checker and `previewPermissions` always agree. Still not
+  covered: a full swap through a concrete `PermissionedV4Router`, which is abstract at this
+  periphery commit, with no production permissioned hook shipped in `src/`.
+- `MockAqua0V4Adapter` moved from `src/integrations/` to `test/mocks/`. It was never deployed.
+- Added `README.md`, `LICENSE` (MIT, matching the SPDX headers) and a CI workflow.
+- The technical documentation moved in as `docs/TECHNICAL-DOCUMENTATION.md` and was brought up to
+  date. It had described the policies as audited, listed the v1 policies as live, described a
+  `tx.origin` identity model the hook does not use, and shown an SDK API that does not exist.
+- **Tests: 162 pass** (was 148).
+
+### Address checksums
+
+Two addresses were in circulation with invalid EIP-55 casing, which viem's strict validation
+rejects: LexifiComplianceAdapter (correct: `0xE59FB4347CA17Aa94BBD62eBB9921877B06b68eE`) and the
+Base Sepolia PoolManager (correct: `0x05E73354cfDd6745c338B50bDb65F6C2F4163313`). Both are fixed in
+the SDK, the docs and `env.example`, and the SDK now has a test that fails on any bad checksum.
+
+### SDK
+
+Bumped to **2.0.0**. npm's 1.0.0 has a different, v1-era API, so this needed a major version. Added a
+README, a LICENSE and 9 tests, one of which pins `encodeRegionalConfig` to the bytes live on Base.
+**Not yet published.** Needs `npm login`, then `npm publish`, then
+`npm deprecate @lexifi/sdk@1.0.0 "<message>"`.
+
+### Dashboard repo
+
+The v1 Solidity prototype moved to `archive/v1-prototype/`, and its four Solidity submodules were
+removed. `README-.md` was removed; its content now lives, corrected, in the contracts README. The
+vendored SDK now commits `dist/` in full: `policyConfig.js` had been ignored, so a fresh clone could
+not build. It is synced to 2.0.0, and `.env.example` is now committed. Verified: `npm ci && npm run
+build` succeeds from a clean copy of the tree. **The site has not been redeployed yet.**
+
 ## Phase 7 — Registry-backed policies, DEPLOYED + LIVE on Base (2026-09-07) ✅
 
-Supersedes Phase 6. The v2 policies from `DeployPolicyFixes.s.sol` were never deployed — v3
-carries the same three audit fixes plus the config registry and the fail-closed default, so
-deploying both would have been redundant.
+Supersedes Phase 6.
+
+> **Correction (2026-09-11).** This section originally said the v2 policies from
+> `DeployPolicyFixes.s.sol` were never deployed. They were: the script was broadcast earlier on
+> 2026-09-07 (`broadcast/DeployPolicyFixes.s.sol/8453/run-1788791849486.json`, both receipts
+> `status 0x1`). RegionalPolicy v2 `0xf4f6af6ee5ff4a1bf712470e00fea2b6bafbf32c` and
+> InstitutionalPolicy v2 `0xaa3f1309219231091b606ca256771e51c3e9d822` are live on Base with
+> `policyVersion() = 2` and Safe ownership. No pool was ever pointed at them — v3 carries the
+> same three fixes plus the config registry and the fail-closed default, and replaced them the
+> same day. They are orphaned. Do not use them.
 
 | Contract | Base mainnet address |
 |---|---|
@@ -335,6 +417,9 @@ After the cutover, `LexifiComplianceAdapter.checkCompliance` returns
 
 ## Phase 6 — Policy audit fixes (code 2026-09-07) — SUPERSEDED BY PHASE 7 ✅
 
+> Historical: written before the redeploy. What was actually deployed is in the Phase 7
+> correction above.
+
 All three findings above are fixed in source and covered by tests. **Nothing has changed
 on-chain yet** — the deployed policies are immutable, so the fix only lands when the two
 policies are redeployed and pools are re-pointed. Until then Base mainnet still runs the
@@ -364,7 +449,7 @@ remove it. On the Permissioned Pools path `LexifiAllowlistChecker.liquidityRequi
 the policy would need an LP-side amount rule, which changes the policy's semantics — a separate
 decision, not an audit fix.
 
-### Redeploy — not yet run
+### Redeploy — broadcast 2026-09-07, then superseded by Phase 7
 
 `script/DeployPolicyFixes.s.sol` deploys **only** the two changed policies and reuses the live
 `CoinbaseEASProvider` (do NOT re-run `DeployPolicies.s.sol`, which would replace all five).
@@ -398,7 +483,7 @@ today**, and the redeploy can be done without a live migration. Confirm before a
 
 | Contract | Base mainnet address |
 |---|---|
-| LexifiComplianceAdapter | `0xe59fB4347Ca17aA94BBd62eBb9921877b06B68eE` |
+| LexifiComplianceAdapter | `0xE59FB4347CA17Aa94BBD62eBB9921877B06b68eE` |
 | LexifiAllowlistChecker | `0x3882cD541634b99DabB5443Dc0DC67Ba4eDe94bc` |
 
 Both verified on BaseScan. Deploy txs `0x0c7e59f1…a8c3` (adapter) and `0xd9edfd7b…6250` (checker),
