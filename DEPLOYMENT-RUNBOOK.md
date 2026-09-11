@@ -273,8 +273,8 @@ clean clone and corrected the record.
   LexifiAllowlistChecker. CoinbaseEASProvider, LexifiComplianceAdapter and LexifiPolicyConfig have
   no owner at all.
 - The Safe `0x17ae…4B7e` is 1-of-1 with signer `0x4122…f039`.
-- **Pool admin is still that EOA, not the Safe**, for both pools on the hook and for WETH/USDC in
-  the registry (Phase 7 trap 2). Open action.
+- Pool admin was still that EOA at the start of this phase. It was moved to the Safe the same day;
+  see "Follow-up" below.
 
 ### Bytecode reproducibility
 
@@ -327,6 +327,35 @@ removed. `README-.md` was removed; its content now lives, corrected, in the cont
 vendored SDK now commits `dist/` in full: `policyConfig.js` had been ignored, so a fresh clone could
 not build. It is synced to 2.0.0, and `.env.example` is now committed. Verified: `npm ci && npm run
 build` succeeds from a clean copy of the tree. **The site has not been redeployed yet.**
+
+### Follow-up (2026-09-11, after the Phase 8 push)
+
+**Pool admin moved to the Safe.** Five transactions from `0x4122…f039`. Every admin slot was read
+back afterwards and holds the Safe.
+
+| What moved | Transaction |
+|---|---|
+| Hook, WETH/USDC pool | `0xcbcd38b2b4f4e6e2747e398bea9c69fc26782a0f7af47bd8f2986add083abf5d` |
+| Hook, Phase 1 pool | `0x93a1e7d31cb404d5a9e6ebf44ee7212c1c12ac5b69c7114cf8fb35236c00ad9a` |
+| Registry, WETH/USDC regional config | `0x56f343d0f9d80b77459fb736db2f7fe41e6c691ba28e41d6bf1bc3d0cb897ffa` |
+| ThresholdPolicy, WETH/USDC | `0xb13cb3a9ab504bf6a6af65c2443b2e0e35dc4a4c1db1ce32ed1678a0215bc221` |
+| ThresholdPolicy, Phase 1 | `0x4c61b84b9ad058e553ae94c89d86dbf7c0adbbed8a3385116346a1f7c29d8efa` |
+
+ThresholdPolicy keeps its own `poolAdmins` record, separate from the hook's, so a full handover is
+five transactions, not three. On Base's public RPC, send them with explicit `--nonce` values: it
+can return a stale nonce right after a transaction.
+
+**Explorer verification.** LexifiAllowlistChecker, LexifiPolicyConfig, RegionalPolicyV3 and
+InstitutionalPolicyV3 are exact matches (creation and runtime) on Sourcify and verified on
+Blockscout, as well as on BaseScan. Forge ignored `--verifier sourcify` here, because it
+auto-loads `.env` and the Etherscan key wins, so the standard JSON input was POSTed to Sourcify's
+v2 API directly. Blockscout rate-limits by IP and hides the 429 in its UI.
+
+**Dashboard redeployed.** The live site serves SDK 2.0.0; the corrected adapter address was
+confirmed in the live JS.
+
+**SDK not yet published.** 2FA (security key) was enabled on the npm account, which triggered npm's
+72-hour read-only period. Publish 2.0.0 and deprecate 1.0.0 after 2026-09-14.
 
 ## Phase 7 — Registry-backed policies, DEPLOYED + LIVE on Base (2026-09-07) ✅
 
@@ -385,7 +414,7 @@ permanent contract — that would be attack surface on a compliance path for a o
 
 Re-pointed from RegionalPolicy v1 to v3 in tx
 `0xa71336d6edc83959dd806b527b3e393e051d3e6a24ed6d75eb566fa13bf6b59b` (block 51004393), sent by
-the pool admin `0x4122…f039` — note the pool admin is that EOA, **not** the Safe.
+the pool admin `0x4122…f039` — note the pool admin was that EOA, **not** the Safe (moved to the Safe on 2026-09-11, Phase 8).
 
 Verified before the cutover: migrated config `(true,false,2,2,true)` is byte-identical to v1,
 and v1/v3 returned the same allow/deny verdict for every address tested on both operations.
@@ -405,7 +434,7 @@ After the cutover, `LexifiComplianceAdapter.checkCompliance` returns
 1. **Any OTHER pool re-pointed at a v3 policy without registry config will stop trading.**
    That is option D working as intended, but it is a live outage if you do it unprepared.
    Write the config first (or in the same batch), then `setPoolPolicy`.
-2. **Registry pool admin is first-writer-wins** and is currently the deployer EOA
+2. **Registry pool admin is first-writer-wins** and was the deployer EOA (moved to the Safe on 2026-09-11, Phase 8)
    `0x4122…f039` for the migrated pool. To hand it to the Safe:
    `registry.transferPoolAdmin(family, poolId, 0x17ae…4B7e)`. There is deliberately no owner
    override on the registry.

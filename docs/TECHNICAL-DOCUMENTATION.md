@@ -751,8 +751,8 @@ Safe `0x17ae269e27524E82F29ca76Cb39A151A90a34B7e`, 1-of-1, signer
 | WETH/USDC, fee 3000, tick spacing 60 | `0x54545d84902d4f5864c9d3f5c14d7dd961c8218dd41fef3292c4eac636e8f424` | RegionalPolicyV3, config `(requireCountry=true, requireAccount=false, minSwap=ACCREDITED, minLp=ACCREDITED)` |
 | ETH/TestToken (Phase 1 proof) | `0x49081a9762db094a03e395f3d38272a16b69c753c904d7e4dfd16bd09a47a718` | ThresholdPolicy |
 
-Pool-admin rights for both pools (on the hook, and for WETH/USDC in the registry) are held by the
-Safe's signer EOA rather than by the Safe. Transferring them is an open action.
+Pool-admin rights for both pools (on the hook, in the registry for WETH/USDC, and in
+ThresholdPolicy) were transferred to the Safe on 2026-09-11.
 
 **Retired — still on-chain, do not use**
 
@@ -925,7 +925,7 @@ shipped with a passing test.
 | ThresholdPolicy gates liquidity on tier alone | Through the hook, a RETAIL address denied a large swap can still add liquidity | Closed on the Permissioned Pools path by `liquidityRequiresSwap` (on by default). Closing it in the policy would change what the policy means |
 | The Permissioned Pools path is size-blind and silent | `checkAllowlist` gets no pool id, operation or amount, and is `view` | Pools that need amount rules or the audit trail use `LexifiHook` directly |
 | Coinbase Verifications exist only on Base | On any other chain `CoinbaseEASProvider` returns tier 0 for everyone and the stack fails closed | Use `SelfAttestationProvider` off Base; confirmed necessary on Robinhood Chain (2026-09-07) |
-| Pool admin is a single address | The two live pools' admin is the Safe's signer EOA | Transfer pool admin to the Safe, on the hook and in the registry |
+| One Safe holds every admin right | The Safe's threshold is 1-of-1, so a single signer controls ownership and pool admin | Raise the Safe to a multi-signer threshold with signers on separate devices |
 | Policy contracts are trusted | A malicious policy can admit anyone or brick a pool | `requireApproval` plus the owner's approved-policy list; currently `requireApproval = false` |
 | Immutable policies | A logic bug means a new policy and re-pointed pools | V3 keeps configuration in `LexifiPolicyConfig`, so no configuration migration is needed |
 | No caching in the hook | Every check makes several external calls | Policies can cache internally |

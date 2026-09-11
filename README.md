@@ -96,9 +96,9 @@ Safe: [`0x17ae269e27524E82F29ca76Cb39A151A90a34B7e`](https://app.safe.global/bas
 | WETH/USDC, fee 0.3% | `0x54545d84902d4f5864c9d3f5c14d7dd961c8218dd41fef3292c4eac636e8f424` | RegionalPolicyV3: country attestation required, ACCREDITED to swap or add liquidity |
 | ETH/TestToken (Phase 1 proof) | `0x49081a9762db094a03e395f3d38272a16b69c753c904d7e4dfd16bd09a47a718` | ThresholdPolicy |
 
-> **Open item.** Pool-admin rights for both pools, on the hook and (for WETH/USDC) in the
-> registry, are held by the Safe's signer `0x4122c8b8080c8960F52d3D1cCb3A8d85EFF1f039` rather
-> than by the Safe itself. Transferring them to the Safe is pending.
+Pool-admin rights for both pools (on the hook, in the registry for WETH/USDC, and in
+ThresholdPolicy) have belonged to the Safe since 2026-09-11. Pool changes go through Safe
+Transaction Builder, like every other owner action.
 
 **Reproducible build.** For every contract above, and for the two retired v2 policies below,
 the runtime bytecode on Base is identical to what this repository compiles, with immutables
