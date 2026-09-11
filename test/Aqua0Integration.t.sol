@@ -15,7 +15,7 @@ import {SelfAttestationProvider} from "../src/policies/SelfAttestationProvider.s
 import {MockVerificationProvider} from "./mocks/MockVerificationProvider.sol";
 import {MockPoolManager} from "./mocks/MockPoolManager.sol";
 import {LexifiComplianceAdapter} from "../src/integrations/LexifiComplianceAdapter.sol";
-import {MockAqua0V4Adapter} from "../src/integrations/MockAqua0V4Adapter.sol";
+import {MockAqua0V4Adapter} from "./mocks/MockAqua0V4Adapter.sol";
 import {ILexifiCompliance} from "../src/integrations/ILexifiCompliance.sol";
 
 /// @title Aqua0 Integration Tests

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {ILexifiCompliance} from "./ILexifiCompliance.sol";
+import {ILexifiCompliance} from "../../src/integrations/ILexifiCompliance.sol";
 
 /// @title MockAqua0V4Adapter
 /// @notice Demonstrates how Aqua0's V4Adapter would integrate Lexifi compliance.
