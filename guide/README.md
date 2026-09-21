@@ -8,7 +8,7 @@ you can change its rules afterwards. Lexifi cannot change your rules, cannot pau
 cannot touch your funds or your users'.
 
 - **Time:** about 15 minutes
-- **Cost:** Base gas, a few cents
+- **Cost:** about 455,000 gas for all three transactions, under a cent at Base's usual gas price
 - **Price:** free, MIT-licensed, no fees
 
 [![Watch the demo](https://img.youtube.com/vi/cnuJ0m1bC7g/hqdefault.jpg)](https://youtu.be/cnuJ0m1bC7g)
@@ -154,6 +154,18 @@ That pass-and-fail pair is the demonstration worth showing your compliance team.
 | Every swap is denied | The pool has no rules yet, and unconfigured pools fail closed. Check that step 3 finished. |
 | A wallet you expect to pass is denied | It has no Coinbase Verification attestation on Base. Check it in the dashboard, or lower `MIN_SWAP_LEVEL`. |
 | `stale nonce` from the public RPC | Pass `--nonce` explicitly, or use your own RPC provider. |
+
+### Rehearse it without spending anything
+
+Run the whole thing against a local fork of Base first. It uses the real deployed contracts, at
+real current state, with test ETH:
+
+```bash
+anvil --fork-url https://mainnet.base.org      # in one terminal
+forge script guide/PilotPool.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
+Your pool id and admin come out exactly as they would on mainnet.
 
 ---
 
