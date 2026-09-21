@@ -73,6 +73,9 @@ forge build
 cp guide/env.example .env
 ```
 
+> **Already have a `.env` in this repo?** Don't overwrite it. Append instead, so your existing keys
+> survive: `cat guide/env.example >> .env`
+
 Open `.env` and fill it in:
 
 | Field | What to put |
@@ -148,6 +151,8 @@ That pass-and-fail pair is the demonstration worth showing your compliance team.
 
 | What you see | What it means |
 |---|---|
+| `environment variable "CURRENCY0" not found` | Your `.env` is missing the pool fields. Run `cat guide/env.example >> .env` and fill them in. |
+| `Error: Could not instantiate forked environment` or a connection refused | You left out `--rpc-url`. Without it, Foundry looks for a node on `localhost`. |
 | `CURRENCY0 must sort below CURRENCY1` | Swap the two addresses and invert your starting price. |
 | Reverts on `initialize` | The pool already exists. Set `SKIP_INITIALIZE=true` and run again to attach a policy to it. |
 | `NotPoolAdmin` | Someone else already claimed this exact pool key. Change the fee or tick spacing to get a different pool, then re-run. |
