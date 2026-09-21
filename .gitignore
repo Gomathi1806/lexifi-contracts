@@ -6,3 +6,4 @@
 out/
 cache/
 broadcast/
+!guide/env.example
