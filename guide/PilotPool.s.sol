@@ -31,8 +31,10 @@ contract PilotPoolScript is Script {
     address constant THRESHOLD_POLICY = 0x75f4913F53B694fDda95E49456D163Ca7AEf4199;
 
     function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        address admin = vm.addr(pk);
+        // No private key required. Leave PRIVATE_KEY unset and sign with a hardware wallet
+        // (--ledger) or an encrypted keystore (--account <name>); the signer is then --sender.
+        uint256 pk = vm.envOr("PRIVATE_KEY", uint256(0));
+        address admin = pk != 0 ? vm.addr(pk) : msg.sender;
 
         // --- pool identity ---
         // currency0 MUST sort below currency1. Native ETH is address(0).
@@ -64,7 +66,11 @@ contract PilotPoolScript is Script {
         console.log("Pool id:");
         console.logBytes32(PoolId.unwrap(poolId));
 
-        vm.startBroadcast(pk);
+        if (pk != 0) {
+            vm.startBroadcast(pk);
+        } else {
+            vm.startBroadcast();
+        }
 
         // --- 1. create the pool, with LexifiHook attached ---
         // Skipped when the pool already exists: initialize reverts on a second call.

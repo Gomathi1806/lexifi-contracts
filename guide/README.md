@@ -80,7 +80,7 @@ Open `.env` and fill it in:
 
 | Field | What to put |
 |---|---|
-| `PRIVATE_KEY` | Your deployer key. It stays on your machine, and Lexifi never sees it. |
+| `PRIVATE_KEY` | **Optional.** Leave it out and sign with a hardware wallet or keystore instead — see step 3. |
 | `RPC_URL` | `https://mainnet.base.org`, or your own provider |
 | `CURRENCY0`, `CURRENCY1` | Your two tokens, sorted so that `CURRENCY0 < CURRENCY1` as numbers. Native ETH is the zero address. |
 | `FEE`, `TICK_SPACING` | Standard Uniswap values, e.g. `3000` and `60` |
@@ -110,6 +110,22 @@ price.
 
 ## Step 3 — Create the pool (2 minutes)
 
+**You do not need to put a private key anywhere.** Pick whichever signer you already trust:
+
+*Hardware wallet (Ledger). The key never leaves the device, and you approve each transaction on
+it:*
+```bash
+forge script guide/PilotPool.s.sol --rpc-url $RPC_URL --ledger --sender <YOUR_ADDRESS> --broadcast
+```
+
+*Encrypted keystore. Import once, then unlock with a password each run — nothing is ever stored in
+plain text:*
+```bash
+cast wallet import pool-admin --interactive          # once
+forge script guide/PilotPool.s.sol --rpc-url $RPC_URL --account pool-admin --sender <YOUR_ADDRESS> --broadcast
+```
+
+*Or, if you prefer, a `PRIVATE_KEY` in `.env` — best kept to a throwaway deployer wallet:*
 ```bash
 forge script guide/PilotPool.s.sol --rpc-url $RPC_URL --broadcast
 ```
@@ -206,6 +222,10 @@ and live in the V3 policies. Start with a small pilot pool.
 
 **What about Uniswap's Permissioned Pools?**
 `LexifiAllowlistChecker` implements `IAllowlistChecker` for that path, over the same rules.
+
+**Do I have to hand over a private key?**
+No. Sign with a Ledger (`--ledger`) or an encrypted keystore (`--account`); the script never reads
+a key in those modes, and nothing about your wallet reaches us either way.
 
 **Can I use my own rules?**
 Yes. The hook accepts any contract implementing `ILexifiPolicy`, including one you write.
