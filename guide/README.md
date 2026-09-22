@@ -153,6 +153,7 @@ That pass-and-fail pair is the demonstration worth showing your compliance team.
 |---|---|
 | `environment variable "CURRENCY0" not found` | Your `.env` is missing the pool fields. Run `cat guide/env.example >> .env` and fill them in. |
 | `Error: Could not instantiate forked environment` or a connection refused | You left out `--rpc-url`. Without it, Foundry looks for a node on `localhost`. |
+| `lack of funds (0) for max fee` | The wallet has no ETH on Base. Fund it with about 0.001 ETH; the three transactions cost roughly a cent. |
 | `CURRENCY0 must sort below CURRENCY1` | Swap the two addresses and invert your starting price. |
 | Reverts on `initialize` | The pool already exists. Set `SKIP_INITIALIZE=true` and run again to attach a policy to it. |
 | `NotPoolAdmin` | Someone else already claimed this exact pool key. Change the fee or tick spacing to get a different pool, then re-run. |
