@@ -7,3 +7,4 @@ out/
 cache/
 broadcast/
 !guide/env.example
+guide/safe-batch.json

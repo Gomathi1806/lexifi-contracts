@@ -110,6 +110,25 @@ price.
 
 ## Step 3 — Create the pool (2 minutes)
 
+### Your treasury is in a Safe? Skip the command line
+
+Generate a Safe Transaction Builder file — this reads your `.env`, needs no key, no keystore and no
+RPC, and only encodes calldata:
+
+```bash
+forge script guide/SafeBatch.s.sol
+```
+
+It writes `guide/safe-batch.json`. In your Safe: **Apps → Transaction Builder → Load batch**, check
+the three calls, and sign with your normal signers. **The Safe becomes the pool admin**, so
+changing the pool's rules later takes the same signatures as moving treasury funds.
+
+Ask us and we'll generate the file for you — send your token pair, fee tier and the rule you want.
+
+### Or run it yourself
+
+
+
 **You do not need to put a private key anywhere.** Pick whichever signer you already trust:
 
 *Hardware wallet (Ledger). The key never leaves the device, and you approve each transaction on
@@ -224,8 +243,9 @@ and live in the V3 policies. Start with a small pilot pool.
 `LexifiAllowlistChecker` implements `IAllowlistChecker` for that path, over the same rules.
 
 **Do I have to hand over a private key?**
-No. Sign with a Ledger (`--ledger`) or an encrypted keystore (`--account`); the script never reads
-a key in those modes, and nothing about your wallet reaches us either way.
+No, in any of the three paths. A Safe batch is signed by your existing signers; `--ledger` keeps the
+key on the device; `--account` unlocks an encrypted keystore with a password. Nothing about your
+wallet reaches us in any case.
 
 **Can I use my own rules?**
 Yes. The hook accepts any contract implementing `ILexifiPolicy`, including one you write.
