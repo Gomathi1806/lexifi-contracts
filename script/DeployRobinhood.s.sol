@@ -22,8 +22,9 @@ import {ThresholdPolicy} from "../src/policies/ThresholdPolicy.sol";
 ///   forge script script/DeployRobinhood.s.sol --rpc-url $RH_RPC --broadcast
 contract DeployRobinhood is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        // Key optional: leave PRIVATE_KEY unset and pass --account <keystore> --sender <addr>.
+        uint256 deployerKey = vm.envOr("PRIVATE_KEY", uint256(0));
+        address deployer = deployerKey != 0 ? vm.addr(deployerKey) : msg.sender;
         address owner = vm.envAddress("OWNER");
         require(owner != deployer, "OWNER must differ from the throwaway deployer");
 
@@ -33,7 +34,11 @@ contract DeployRobinhood is Script {
         console.log("Owner:", owner);
         console.log("");
 
-        vm.startBroadcast(deployerKey);
+        if (deployerKey != 0) {
+            vm.startBroadcast(deployerKey);
+        } else {
+            vm.startBroadcast();
+        }
 
         // 1. Identity source. No external dependencies, so it works on any chain.
         SelfAttestationProvider provider =
