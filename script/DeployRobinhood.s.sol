@@ -32,6 +32,11 @@ contract DeployRobinhood is Script {
         console.log("Chain id:", block.chainid);
         console.log("Deployer (throwaway):", deployer);
         console.log("Owner:", owner);
+        if (owner.code.length == 0) {
+            console.log("NOTE: OWNER has no code on this chain, so it is an EOA here.");
+            console.log("      A Safe from another chain does NOT exist at the same address;");
+            console.log("      owner-only calls such as attest() would be impossible.");
+        }
         console.log("");
 
         if (deployerKey != 0) {
@@ -46,17 +51,23 @@ contract DeployRobinhood is Script {
         console.log("SelfAttestationProvider:", address(provider));
 
         // 2. Config registry. Ownerless by design: first writer per pool owns that pool.
-        LexifiPolicyConfig registry = new LexifiPolicyConfig();
-        console.log("LexifiPolicyConfig:     ", address(registry));
+        //    Pass POLICY_CONFIG to reuse one that is already deployed on this chain.
+        address existingRegistry = vm.envOr("POLICY_CONFIG", address(0));
+        LexifiPolicyConfig registry = existingRegistry == address(0)
+            ? new LexifiPolicyConfig()
+            : LexifiPolicyConfig(existingRegistry);
+        console.log("LexifiPolicyConfig:     ", address(registry), existingRegistry == address(0) ? "(new)" : "(reused)");
 
         // 3. Policies, all reading identity from the provider above.
         RegionalPolicyV3 regional =
             new RegionalPolicyV3(address(provider), address(registry), owner);
         console.log("RegionalPolicyV3:       ", address(regional));
 
-        InstitutionalPolicyV3 institutional =
-            new InstitutionalPolicyV3(address(registry), owner);
-        console.log("InstitutionalPolicyV3:  ", address(institutional));
+        if (!vm.envOr("SKIP_INSTITUTIONAL", false)) {
+            InstitutionalPolicyV3 institutional =
+                new InstitutionalPolicyV3(address(registry), owner);
+            console.log("InstitutionalPolicyV3:  ", address(institutional));
+        }
 
         ThresholdPolicy threshold = new ThresholdPolicy(address(provider), owner);
         console.log("ThresholdPolicy:        ", address(threshold));
