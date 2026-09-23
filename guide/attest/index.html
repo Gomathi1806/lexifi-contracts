@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lexifi — attest a wallet (Robinhood Chain)</title>
+<style>
+  :root {
+    --ink: #0d1424; --soft: #55607a; --surface: #fff; --ground: #f4f6fb;
+    --line: #dfe4ef; --accent: #0052ff; --pass: #0f7a52; --deny: #b32d2d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 15px/1.55 "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--soft); margin: 0 0 24px; font-size: 14px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 18px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 12px; letter-spacing: .09em; text-transform: uppercase;
+             color: var(--soft); margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--soft); margin: 10px 0 4px; }
+  input, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px;
+    font: 13px "IBM Plex Mono", ui-monospace, monospace; background: var(--ground); color: var(--ink);
+  }
+  button {
+    margin-top: 14px; padding: 10px 16px; border: 0; border-radius: 7px;
+    background: var(--accent); color: #fff; font: 600 14px "IBM Plex Sans", system-ui, sans-serif;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .result { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  .pill {
+    font: 600 12px "IBM Plex Mono", monospace; padding: 5px 11px; border-radius: 999px;
+  }
+  .pill.pass { color: var(--pass); background: #0f7a5220; }
+  .pill.deny { color: var(--deny); background: #b32d2d20; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; word-break: break-all; }
+  .log { margin-top: 14px; font-size: 13px; color: var(--soft); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Attest a wallet</h1>
+  <p class="sub">Lexifi on Robinhood Chain (4663). Reads are free; the attestation is signed by the
+     provider's owner in your wallet.</p>
+
+  <div class="card">
+    <h2>Wallet</h2>
+    <button id="connect">Connect wallet</button>
+    <div class="log" id="who">Not connected.</div>
+  </div>
+
+  <div class="card">
+    <h2>1 — Check access</h2>
+    <label for="target">Wallet to check</label>
+    <input id="target" placeholder="0x…" spellcheck="false">
+    <label for="amount">Trade size (ETH)</label>
+    <input id="amount" value="1">
+    <button class="secondary" id="check">Check</button>
+    <div class="result" id="checkResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 — Attest (owner only)</h2>
+    <label for="tier">Tier</label>
+    <select id="tier">
+      <option value="1">1 — retail (basic KYC)</option>
+      <option value="2" selected>2 — accredited</option>
+      <option value="3">3 — institutional</option>
+    </select>
+    <label for="expiry">Expires</label>
+    <input id="expiry" value="2100-01-01 (fixed)" disabled>
+    <button id="attest">Attest wallet</button>
+    <div class="log" id="txLog"></div>
+  </div>
+
+  <p class="sub mono">
+    provider 0xC9F31Cb33BEC349691E11A6C62B1428C3c7C201B ·
+    policy 0xBaa8ba3000Ee1087B0B52937078F4D4f146dF28C ·
+    pool 0x17fbcda0…05f42
+  </p>
+</div>
+
+<script>
+const RPC       = "https://rpc.mainnet.chain.robinhood.com";
+const CHAIN_ID  = "0x1237"; // 4663
+const PROVIDER  = "0xC9F31Cb33BEC349691E11A6C62B1428C3c7C201B";
+const POLICY    = "0xBaa8ba3000Ee1087B0B52937078F4D4f146dF28C";
+const POOL_ID   = "0x17fbcda00d5252905f0a63d2527601990cd5759939c22eb682b220a9c1505f42";
+const EXPIRY    = 4102444800; // 2100-01-01
+
+// minimal ABI encoding: every argument here is a 32-byte word
+const pad = (h) => h.replace(/^0x/, "").padStart(64, "0");
+const addrWord = (a) => pad(a.toLowerCase());
+const numWord  = (n) => pad(BigInt(n).toString(16));
+
+async function rpc(method, params) {
+  const r = await fetch(RPC, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+}
+
+// selectors, precomputed to avoid pulling in a hashing library
+const SEL_CHECK_ACCESS = "0xb63c7132"; // checkAccess(bytes32,address,uint8,uint256)
+const SEL_MIN_LEVEL    = "0x1826a03f"; // minimumLevel(bytes32,uint8)
+const SEL_ATTEST       = "0x2250eed0"; // attest(address,uint256,uint256)
+
+const LEVELS = ["DENIED", "RETAIL", "ACCREDITED", "INSTITUTIONAL"];
+let account = null;
+
+document.getElementById("connect").onclick = async () => {
+  if (!window.ethereum) { alert("No injected wallet found. Open this page in a browser with Rabby or MetaMask."); return; }
+  const accs = await window.ethereum.request({ method: "eth_requestAccounts" });
+  account = accs[0];
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID }] });
+  } catch (e) { /* user may already be on it, or the chain is not added */ }
+  document.getElementById("who").textContent = "Connected: " + account;
+  document.getElementById("target").value = document.getElementById("target").value || account;
+};
+
+document.getElementById("check").onclick = async () => {
+  const el = document.getElementById("checkResult");
+  el.innerHTML = "checking…";
+  try {
+    const target = document.getElementById("target").value.trim();
+    const eth = document.getElementById("amount").value.trim();
+    const wei = BigInt(Math.round(parseFloat(eth) * 1e6)) * (10n ** 12n);
+
+    const dataCheck = SEL_CHECK_ACCESS + pad(POOL_ID) + addrWord(target) + numWord(0) + numWord(wei);
+    const dataMin   = SEL_MIN_LEVEL + pad(POOL_ID) + numWord(0);
+
+    const [levelHex, minHex] = await Promise.all([
+      rpc("eth_call", [{ to: POLICY, data: dataCheck }, "latest"]),
+      rpc("eth_call", [{ to: POLICY, data: dataMin }, "latest"])
+    ]);
+    const level = parseInt(levelHex.slice(2, 66), 16);
+    const min   = parseInt(minHex.slice(2, 66), 16);
+    const ok = level >= min;
+    el.innerHTML =
+      '<span class="pill ' + (ok ? "pass" : "deny") + '">' + (ok ? "ALLOWED" : "DENIED") + "</span>" +
+      '<span class="mono">wallet level ' + level + " (" + LEVELS[level] + ") · pool requires " + min +
+      " (" + LEVELS[min] + ") for a " + eth + " ETH swap</span>";
+  } catch (e) {
+    el.innerHTML = '<span class="mono">error: ' + e.message + "</span>";
+  }
+};
+
+document.getElementById("attest").onclick = async () => {
+  const log = document.getElementById("txLog");
+  if (!account) { log.textContent = "Connect a wallet first."; return; }
+  try {
+    const target = document.getElementById("target").value.trim();
+    const tier = document.getElementById("tier").value;
+    const data = SEL_ATTEST + addrWord(target) + numWord(tier) + numWord(EXPIRY);
+    log.textContent = "Confirm in your wallet…";
+    const hash = await window.ethereum.request({
+      method: "eth_sendTransaction",
+      params: [{ from: account, to: PROVIDER, data }]
+    });
+    log.innerHTML = 'Sent: <span class="mono">' + hash + "</span> — wait for it to confirm, then press Check again.";
+  } catch (e) {
+    log.textContent = "error: " + e.message;
+  }
+};
+</script>
+</body>
+</html>
