@@ -83,6 +83,14 @@
     <div class="log" id="txLog"></div>
   </div>
 
+  <div class="card">
+    <h2>3 — Transfer provider ownership (owner only)</h2>
+    <label for="newOwner">New owner</label>
+    <input id="newOwner" value="0xC0fa48B221F995620A2781A2Fa39F84636597aDA" spellcheck="false">
+    <button id="transfer">Transfer ownership</button>
+    <div class="log" id="ownLog">Current owner is read from the chain when the page loads.</div>
+  </div>
+
   <p class="sub mono">
     provider 0xC9F31Cb33BEC349691E11A6C62B1428C3c7C201B ·
     policy 0xBaa8ba3000Ee1087B0B52937078F4D4f146dF28C ·
@@ -118,6 +126,8 @@ async function rpc(method, params) {
 const SEL_CHECK_ACCESS = "0xb63c7132"; // checkAccess(bytes32,address,uint8,uint256)
 const SEL_MIN_LEVEL    = "0x1826a03f"; // minimumLevel(bytes32,uint8)
 const SEL_ATTEST       = "0x2250eed0"; // attest(address,uint256,uint256)
+const SEL_OWNER        = "0x8da5cb5b"; // owner()
+const SEL_TRANSFER     = "0xf2fde38b"; // transferOwnership(address)
 
 const LEVELS = ["DENIED", "RETAIL", "ACCREDITED", "INSTITUTIONAL"];
 let account = null;
@@ -173,6 +183,35 @@ document.getElementById("attest").onclick = async () => {
       params: [{ from: account, to: PROVIDER, data }]
     });
     log.innerHTML = 'Sent: <span class="mono">' + hash + "</span> — wait for it to confirm, then press Check again.";
+  } catch (e) {
+    log.textContent = "error: " + e.message;
+  }
+};
+
+async function showOwner() {
+  try {
+    const res = await rpc("eth_call", [{ to: PROVIDER, data: SEL_OWNER }, "latest"]);
+    const owner = "0x" + res.slice(26);
+    document.getElementById("ownLog").innerHTML =
+      'Current provider owner: <span class="mono">' + owner + "</span>";
+  } catch (e) { /* leave the default text */ }
+}
+showOwner();
+
+document.getElementById("transfer").onclick = async () => {
+  const log = document.getElementById("ownLog");
+  if (!account) { log.textContent = "Connect the current owner's wallet first."; return; }
+  const newOwner = document.getElementById("newOwner").value.trim();
+  if (!confirm("Transfer provider ownership to " + newOwner + "? This cannot be undone from here.")) return;
+  try {
+    const data = SEL_TRANSFER + addrWord(newOwner);
+    log.textContent = "Confirm in your wallet…";
+    const hash = await window.ethereum.request({
+      method: "eth_sendTransaction",
+      params: [{ from: account, to: PROVIDER, data }]
+    });
+    log.innerHTML = 'Sent: <span class="mono">' + hash + "</span>";
+    setTimeout(showOwner, 6000);
   } catch (e) {
     log.textContent = "error: " + e.message;
   }
