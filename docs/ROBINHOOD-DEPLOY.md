@@ -47,30 +47,26 @@ forge script script/DeployRobinhood.s.sol \
 Deploys, in one transaction batch: `SelfAttestationProvider`, `LexifiPolicyConfig`,
 `RegionalPolicyV3`, `InstitutionalPolicyV3`, `ThresholdPolicy`. Record every address.
 
-## Step 2 — Mine the hook salt
+## Step 2 — Deploy the hook (it mines its own salt)
 
-The hook's address has to carry its permission bits, so it is deployed through CREATE2 at a mined
-address. This reads nothing from the chain and needs no key:
+`DeployHook` mines the CREATE2 salt itself, against the exact creation code it is about to send.
+**Do not mine with `script/MineSalt.s.sol` and pass the result here**: `type(X).creationCode` is not
+guaranteed to be byte-identical across compilation units, and on this repo the two scripts hash it
+differently, so a salt mined there predicts an address this script would never deploy to.
 
-```bash
-POOL_MANAGER=0x8366a39cc670b4001a1121b8f6a443a643e40951 OWNER=<owner> \
-forge script script/MineSalt.s.sol
-```
-
-It prints a salt and the address the hook will land on. The salt depends on the owner address, so
-re-mine if the owner changes. In the rehearsal a salt was found within the first 36,000 candidates,
-in a few seconds.
+`DeployHook` also ignores a `HOOK_SALT` that does not fit — which matters because `.env` carries the
+salt from the Base deploy, and Foundry loads `.env` for every run.
 
 ## Step 3 — Deploy the hook
 
 ```bash
-PRIVATE_KEY=<throwaway> POOL_MANAGER=0x8366a39cc670b4001a1121b8f6a443a643e40951 \
-OWNER=<owner> HOOK_SALT=<from step 2> \
+POOL_MANAGER=0x8366a39cc670b4001a1121b8f6a443a643e40951 OWNER=<owner> \
 forge script script/DeployHook.s.sol \
-  --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
+  --rpc-url https://rpc.mainnet.chain.robinhood.com \
+  --account <keystore> --sender <deployer> --broadcast
 ```
 
-The script refuses to broadcast unless the predicted address carries exactly
+The script refuses to broadcast unless the address it is deploying to carries exactly
 `beforeInitialize | beforeAddLiquidity | beforeSwap`.
 
 ## Step 4 — Create a gated pool
@@ -99,9 +95,12 @@ cast call <thresholdPolicy> "checkAccess(bytes32,address,uint8,uint256)" <poolId
 cast call <thresholdPolicy> "minimumLevel(bytes32,uint8)(uint8)" <poolId> 0 --rpc-url <rpc>
 ```
 
-**Rehearsal result on the fork:** before attestation the wallet read `0` (DENIED) against a required
-level of `2`; after the operator attested it at tier 2 it read `2`, which meets the requirement. The
-pool admin came back as the deploying address, not Lexifi.
+**Rehearsal result on the fork (2026-09-23, owner `0x4122…f039`, deployer `0xC0fa…7aDA`):** hook owner
+`0x4122…f039`, pool admin `0xC0fa…7aDA`, and the test wallet read `0` (DENIED) against a required level
+of `2` until the owner attested it at tier 2, after which it read `2`.
+
+Measured gas: policy stack 3,126,273 (about 0.00016 ETH at 0.052 gwei), hook deploy on top of that.
+0.0005 ETH covers the whole deploy several times over.
 
 ## Step 6 — Afterwards
 
