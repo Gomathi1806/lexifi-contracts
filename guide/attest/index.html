@@ -139,7 +139,13 @@ document.getElementById("connect").onclick = async () => {
   try {
     await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID }] });
   } catch (e) { /* user may already be on it, or the chain is not added */ }
-  document.getElementById("who").textContent = "Connected: " + account;
+  const chainId = await window.ethereum.request({ method: "eth_chainId" });
+  const onRh = chainId === CHAIN_ID;
+  document.getElementById("who").innerHTML =
+    'Connected: <span class="mono">' + account + "</span><br>Network: " +
+    (onRh ? '<span class="pill pass">Robinhood Chain (4663)</span>'
+          : '<span class="pill deny">chain ' + parseInt(chainId, 16) +
+            " — switch to Robinhood Chain (4663)</span>");
   document.getElementById("target").value = document.getElementById("target").value || account;
 };
 
@@ -172,7 +178,7 @@ document.getElementById("check").onclick = async () => {
 
 document.getElementById("attest").onclick = async () => {
   const log = document.getElementById("txLog");
-  if (!account) { log.textContent = "Connect a wallet first."; return; }
+  if (!(await assertCanWrite(log))) return;
   try {
     const target = document.getElementById("target").value.trim();
     const tier = document.getElementById("tier").value;
@@ -188,6 +194,42 @@ document.getElementById("attest").onclick = async () => {
   }
 };
 
+
+const OWNER_HINT = "the provider owner";
+
+/** Refuses to send unless the wallet is on chain 4663 and holds the provider's owner key. */
+async function assertCanWrite(log) {
+  if (!account) { log.textContent = "Connect a wallet first."; return false; }
+
+  const chainId = await window.ethereum.request({ method: "eth_chainId" });
+  if (chainId !== CHAIN_ID) {
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID }]
+      });
+    } catch (e) {
+      log.innerHTML = 'Your wallet is on chain <span class="mono">' + parseInt(chainId, 16) +
+        "</span>, not Robinhood Chain (4663). Add or switch to Robinhood Chain first — " +
+        "sending from the wrong chain wastes gas and does nothing.";
+      return false;
+    }
+    const after = await window.ethereum.request({ method: "eth_chainId" });
+    if (after !== CHAIN_ID) {
+      log.textContent = "Still not on Robinhood Chain (4663). Switch networks and try again.";
+      return false;
+    }
+  }
+
+  const res = await rpc("eth_call", [{ to: PROVIDER, data: SEL_OWNER }, "latest"]);
+  const owner = "0x" + res.slice(26);
+  if (owner.toLowerCase() !== account.toLowerCase()) {
+    log.innerHTML = 'This wallet is <span class="mono">' + account + '</span>, but only ' +
+      OWNER_HINT + ' <span class="mono">' + owner + "</span> can do this. Switch accounts.";
+    return false;
+  }
+  return true;
+}
+
 async function showOwner() {
   try {
     const res = await rpc("eth_call", [{ to: PROVIDER, data: SEL_OWNER }, "latest"]);
@@ -200,7 +242,7 @@ showOwner();
 
 document.getElementById("transfer").onclick = async () => {
   const log = document.getElementById("ownLog");
-  if (!account) { log.textContent = "Connect the current owner's wallet first."; return; }
+  if (!(await assertCanWrite(log))) return;
   const newOwner = document.getElementById("newOwner").value.trim();
   if (!confirm("Transfer provider ownership to " + newOwner + "? This cannot be undone from here.")) return;
   try {
