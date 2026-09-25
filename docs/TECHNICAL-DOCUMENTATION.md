@@ -893,7 +893,7 @@ cast send $LEXIFI_HOOK \
 
 ## 13. Test Coverage
 
-**162 tests across 9 suites, all passing** (`forge test`, 2026-09-11). CI runs the full suite on
+**192 tests across 10 suites, all passing** (`forge test`, 2026-09-25). CI runs the full suite on
 every push (`.github/workflows/test.yml`). No RPC endpoint or key is needed.
 
 | Suite | What it covers |
@@ -907,6 +907,7 @@ every push (`.github/workflows/test.yml`). No RPC endpoint or key is needed.
 | `Aqua0Integration.t.sol` | A third-party venue adapter calling `LexifiComplianceAdapter` from `beforeSwap`, with pass and deny paths |
 | `LexifiAllowlistChecker.t.sol` | The Permissioned Pools checker on its own: flags, bindings, pause, fail-closed on a reverting policy |
 | `PermissionsAdapterIntegration.t.sol` | Uniswap's real `PermissionsAdapterFactory` and `PermissionsAdapter` with the Lexifi checker plugged in, including a fuzzed check that adapter, checker and `previewPermissions` always agree |
+| `AdminBinding.t.sol` | Pool-admin binding for the next, not-yet-deployed version (`LexifiHookV3`, `LexifiPolicyConfigV2`, `LexifiAllowlistCheckerV2`): pool admin can no longer be claimed by the first caller, and issuers bind their own tokens. Runs against Uniswap's real PoolManager and PermissionsAdapterFactory |
 
 **Method note.** Enforcement is `checkAccess().level >= minimumLevel(operation)`, and tests assert
 through that comparison, never on the `reason` string alone. The hook discards `reason` whenever

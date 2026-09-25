@@ -100,7 +100,7 @@ The whole deploy on Robinhood Chain cost under 0.001 ETH.
 
 - Live and enforcing on Robinhood Chain mainnet and on Base mainnet (9 contracts, in Uniswap's
   official hook registry).
-- 162 Foundry tests, CI green, MIT licensed, every deployed contract reproducible from source.
+- 192 Foundry tests, CI green, MIT licensed, every deployed contract reproducible from source.
 - **No third-party audit yet.** An internal policy audit in September 2026 found three issues; all
   three are fixed and live in the V3 policies.
 - **No external issuer in production yet.** This deployment is the reference implementation an

@@ -221,7 +221,7 @@ Your pool id and admin come out exactly as they would on mainnet.
 | InstitutionalPolicyV3 | `0xdA93C63212CF41dB3680319B3839f254aC319177` |
 | PoolManager (Uniswap) | `0x498581fF718922c3f8e6A244956aF099B2652b2b` |
 
-All source-verified on BaseScan, Blockscout and Sourcify. 162 tests. LexifiHook is listed in
+All source-verified on BaseScan, Blockscout and Sourcify. 192 tests. LexifiHook is listed in
 [Uniswap's hook registry](https://github.com/Uniswap/hooklist).
 
 ---

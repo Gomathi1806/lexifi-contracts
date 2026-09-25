@@ -8,7 +8,7 @@ to the policy registered for that pool, and the policy decides from on-chain ide
 attestations. The contract enforces the rule, not a frontend, and withdrawals are never
 blocked.
 
-Live on Base mainnet · Solidity 0.8.26 · Foundry · 162 tests
+Live on Base and Robinhood Chain mainnet · Solidity 0.8.26 · Foundry · 192 tests
 
 ```
 Pool         Policy                  Rule
@@ -220,6 +220,7 @@ push.
 | `Aqua0Integration.t.sol` | A third-party venue adapter calling `LexifiComplianceAdapter` from `beforeSwap` |
 | `LexifiAllowlistChecker.t.sol` | The Permissioned Pools checker on its own: flags, bindings, pause, fail-closed |
 | `PermissionsAdapterIntegration.t.sol` | Uniswap's real `PermissionsAdapterFactory` and `PermissionsAdapter` with the Lexifi checker plugged in, including a fuzzed check that adapter, checker and `previewPermissions` always agree |
+| `AdminBinding.t.sol` | Pool-admin binding for the next, not-yet-deployed version (`LexifiHookV3`, `LexifiPolicyConfigV2`, `LexifiAllowlistCheckerV2`): pool admin can no longer be claimed by the first caller, and issuers bind their own tokens. Runs against Uniswap's real PoolManager and PermissionsAdapterFactory |
 
 ## Deploying
 
@@ -240,7 +241,7 @@ src/
   integrations/                    LexifiComplianceAdapter, LexifiAllowlistChecker
   interfaces/  libraries/
 script/                            deployment and proof scripts
-test/                              the nine suites; mocks in test/mocks
+test/                              the ten suites; mocks in test/mocks
 docs/TECHNICAL-DOCUMENTATION.md    contract reference, flows, access control, security model
 DEPLOYMENT-RUNBOOK.md              deployment changelog
 ```
