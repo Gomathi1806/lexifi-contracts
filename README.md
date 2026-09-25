@@ -123,6 +123,35 @@ ETH/TestToken pool on ThresholdPolicy with `noKycLimit = 0.0001 ETH`.
 | Swap below the threshold passes | [`0x593f00ab…fbda`](https://basescan.org/tx/0x593f00ab2d229683caaecc1adf3fd659e2249e6c1a6b16681a4b93d09cb3fbda) |
 | Swap above the threshold is denied | [`0x7eba76ae…4c22`](https://basescan.org/tx/0x7eba76aedf5e540fdc3d31419537ebedd9c5cd951a36e59c6364758a85f44c22) |
 
+## Deployments: Robinhood Chain (chainId 4663)
+
+Robinhood Chain runs Uniswap v4, but **Coinbase Verifications do not exist there** — the EAS
+predeploy and the Coinbase indexer and attester all have no code on 4663, so `CoinbaseEASProvider`
+would deny every address. Identity comes from `SelfAttestationProvider` instead, where the operator
+records its own KYC results on-chain.
+
+| Contract | Address |
+|---|---|
+| LexifiHook | [`0x0B0400B2…6880`](https://robinhoodchain.blockscout.com/address/0x0B0400B268045Aa7E3B3ca18c1e1774f6C076880) |
+| SelfAttestationProvider | [`0xC9F31Cb3…201B`](https://robinhoodchain.blockscout.com/address/0xC9F31Cb33BEC349691E11A6C62B1428C3c7C201B) |
+| LexifiPolicyConfig | [`0xF9f0d911…028b`](https://robinhoodchain.blockscout.com/address/0xF9f0d91100C86Acb6b6A56F17014CF03A53a028b) |
+| RegionalPolicyV3 | [`0xe1051391…9cBD`](https://robinhoodchain.blockscout.com/address/0xe1051391f608D0EeBE9FCF57DB96e087c7fd9cBD) |
+| ThresholdPolicy | [`0xBaa8ba30…F28C`](https://robinhoodchain.blockscout.com/address/0xBaa8ba3000Ee1087B0B52937078F4D4f146dF28C) |
+
+All five are verified on Blockscout and exact matches on Sourcify. Uniswap's `PoolManager` on this
+chain is `0x8366a39CC670B4001A1121B8F6A443A643e40951`.
+
+**Live pool:** native ETH / USDG, fee 3000, tick spacing 60, pool id
+`0x17fbcda0…05f42`. Swaps under 0.0001 ETH are open; above that they require an ACCREDITED
+attestation. The gate, read live:
+
+| Wallet | 1 ETH swap |
+|---|---|
+| No attestation | level 0 against a required 2 — denied |
+| Attested at tier 2 ([`0xf164ec13…071f`](https://robinhoodchain.blockscout.com/tx/0xf164ec13819e0e913e95b1a086ba2243a295092ff21768bb47c69149391f071f)) | level 2 — allowed |
+
+Deploy runbook: [`docs/ROBINHOOD-DEPLOY.md`](docs/ROBINHOOD-DEPLOY.md).
+
 ### Retired: do not use
 
 All still on-chain, since contracts cannot be deleted.
